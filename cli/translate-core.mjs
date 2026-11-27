@@ -103,7 +103,7 @@ export function slideParts(body) {
   // runs: the text the audience reads, cut exactly as the writing tools cut it
   for (const r of textRuns(inner)) {
     const i = add('run', r.text);
-    edits.push({ start: from + r.start, end: from + r.end, make: (T) => encText(T[i]) });
+    edits.push({ start: from + r.start, end: from + r.end, units: [i], make: (T) => encText(T[i]) });
   }
 
   // beats: the notes cut at [click]; the markers are not units, so a
@@ -142,10 +142,10 @@ export function slideParts(body) {
       if (name === 'data-steps') {
         const items = value.split(',').map((x) => x.trim());
         const ids = items.map((x) => (LETTER.test(x) ? add('attr', x) : -1));
-        if (ids.some((i) => i >= 0)) edits.push({ start: vStart, end: vEnd, make: (T) => encAttr(items.map((x, k) => (ids[k] >= 0 ? T[ids[k]] : x)).join(', ')) });
+        if (ids.some((i) => i >= 0)) edits.push({ start: vStart, end: vEnd, units: ids.filter((i) => i >= 0), make: (T) => encAttr(items.map((x, k) => (ids[k] >= 0 ? T[ids[k]] : x)).join(', ')) });
       } else if (LETTER.test(value)) {
         const i = add('attr', value.trim());
-        edits.push({ start: vStart, end: vEnd, make: (T) => encAttr(T[i]) });
+        edits.push({ start: vStart, end: vEnd, units: [i], make: (T) => encAttr(T[i]) });
       }
     }
   }

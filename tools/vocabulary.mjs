@@ -92,6 +92,8 @@ export const ATTRIBUTES = [
   { name: 'data-nest', kind: 'nesting setting', values: ['on', 'off'] },
   { name: 'data-id' },
   { name: 'data-animate', kind: 'animation', values: ['pulse', 'float', 'shake', 'spin', 'blink', 'bounce', 'swing', 'glow', 'breathe'] },
+  { name: 'data-write', kind: 'letter-by-letter animation', values: ['out', 'off'], bare: true },
+  { name: 'data-write-after', kind: 'letter-by-letter animation', bare: true },
 
   // ── charts ────────────────────────────────────────────────────────────────
   { name: 'data-chart', kind: 'chart type', values: ['bar', 'line', 'area', 'pie', 'donut', 'scatter'] },
@@ -158,7 +160,7 @@ export const ENGINE_ATTRIBUTES = [
   'data-concept-hints', 'data-corner', 'data-custom', 'data-decklight-audio', 'data-decklight-runtime',
   'data-decklight-terminal', 'data-decklight-version', 'data-decklight-visemes', 'data-decklight-voices', 'data-dense',
   'data-design-system', 'data-design-system-meta', 'data-design-system-palette', 'data-design-system-templates',
-  'data-design-system-theme', 'data-design-system-version', 'data-display-fill', 'data-dl-unsaved', 'data-dock',
+  'data-design-system-theme', 'data-design-system-version', 'data-display-fill', 'data-dl-unsaved', 'data-dl-write-glyph', 'data-dock',
   'data-draw-marker-end', 'data-draw-marker-start', 'data-draw-masked', 'data-draw-orig', 'data-ds-expanded',
   'data-ds-injected', 'data-ds-missing', 'data-ds-required-empty', 'data-eyelid', 'data-filmed', 'data-fit-scale',
   'data-font', 'data-font-meta', 'data-font-preview', 'data-font-version', 'data-generated', 'data-go', 'data-how',

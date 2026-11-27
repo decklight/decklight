@@ -15,7 +15,7 @@ being moved, and it says what it points at.
 | `DECK_ANATOMY` · `SLIDE_DENSITY` · `COMPARISON_SLIDES` | how a deck and a slide are put together |
 | `BUILDS` · `BUILD_AUTHORING` · `BUILD_SEMANTICS` · `BUILD_ENTRANCES` · `BUILD_PROVIDER_API` | progressive reveals |
 | `SVG_DIAGRAMS` · `CHARTS` | diagrams and data |
-| `MOTION` · `SLIDE_TRANSITIONS` · `AUTO_ANIMATE` · `ELEMENT_ANIMATIONS` | movement |
+| `MOTION` · `SLIDE_TRANSITIONS` · `AUTO_ANIMATE` · `ELEMENT_ANIMATIONS` · `LETTER_BY_LETTER` | movement |
 | `THEMING` · `THEME_DISTRIBUTION` | the token contract, and sharing a theme |
 | `CODE_AND_MATH` | code blocks and LaTeX |
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
@@ -416,6 +416,30 @@ Declarative charts from inline JSON: a chart IS a theme-aware SVG diagram, gener
 `data-animate="pulse | float | shake | spin | blink | bounce | swing | glow | breathe"`: looping attention animations, start when the slide becomes active (and only then; pause on inactive slides). Respect reduced-motion.
 
 A deck may also animate its own elements with CSS keyframes or transitions (an entrance from `opacity: 0`, say). A still (`?print`, and the `?capture` renders behind `pptx`, `shot` and `video`) shows each such animation at its end, finished as builds are completed (PRESENTING_OUTPUT): the slide as it ends up, not as it starts. Only the deck's own are finished: the `data-animate` loops above never end and keep running, and the engine's own animations (builds, the travel token, a terminal's cursor) are left alone. The way to bring an element in on a click is still a build (BUILDS), not hand-written keyframes.
+
+### LETTER_BY_LETTER · Text that writes itself
+
+`<h2 data-write>The problem</h2>` reveals plain text one character at a time when its slide
+becomes active. The runtime holds each word together and treats a letter with its accents or
+an emoji sequence as one character. A space takes one tick. The whole sentence remains available
+to screen readers and the slide finder. The file keeps the plain text, so checking, translation,
+bundle and publish use the sentence. Write mode edits it as text and plays it again after a save.
+
+- Set `--dl-write-step` to a CSS time to change the pace (default `45ms`). Use `data-write="out"`
+  to fade after the text has been written. Set `--dl-write-hold` (default `900ms`) and
+  `--dl-write-fade` (default `350ms`) to control the hold and fade. Themes, design systems,
+  slides and individual elements can set these properties.
+- `data-write-after` reveals an element when the last animated character on the slide appears.
+  A template can set `data-write` or `data-write="out"` on a `data-slot` container to give
+  its plain-text contents the effect. Set `data-write="off"` on an element or its section to opt out.
+- Exact video samples the animation on the slide's frame clock, including across builds
+  (moving capture uses Node 22 or later).
+  Live video plays it on the browser's clock. Print, PDF, still captures, thumbnails and
+  reduced-motion presentations show the complete text without the fade.
+- `decklight check --fix` converts legacy titles written as a wrapper for each word and letter.
+  It takes the words from the outer `aria-label` and migrates the deck's translations at the
+  same time. In their version-1 records, the old letter and label pairs become one text pair
+  for the whole title. Existing translated labels and their review state carry forward.
 
 ## THEMING · the token contract
 

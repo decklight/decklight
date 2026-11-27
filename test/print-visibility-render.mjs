@@ -24,13 +24,14 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { inflateSync } from 'node:zlib';
 import { dumpDom } from './harness.mjs';
 import { chromeBin, chromeArgs } from '../tools/chrome.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
+const urlOf = (file) => pathToFileURL(file).href;
 const dir = mkdtempSync(path.join(tmpdir(), 'decklight-print-visibility-'));
 process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
 
@@ -75,14 +76,14 @@ const CONTROL = '.box { border: 3px solid currentColor; padding: 10px; margin: 8
  * one hidden outright, 4 a data-animate loop, 5 a build: the last three are
  * what must NOT change or be reported wrongly.
  */
-function deck(name, css, { probe = true, panel = false } = {}) {
+function deck(name, css, { probe = true, panel = false, writing = false } = {}) {
   const file = path.join(dir, `${name}.html`);
   writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="${path.join(root, 'dist/decklight.css')}">
-<link rel="stylesheet" href="${path.join(root, 'themes/aurora.css')}">
+<link rel="stylesheet" href="${urlOf(path.join(root, 'dist/decklight.css'))}">
+<link rel="stylesheet" href="${urlOf(path.join(root, 'themes/aurora.css'))}">
 <style>${css}</style></head>
 <body><div class="decklight">
-<section><h1>Cover</h1></section>
+<section><h1${writing ? ' data-write="out" style="--dl-write-step: 1s; --dl-write-hold: 1s"' : ''}>Cover title</h1></section>
 <section><h2>Batch vs streaming</h2>
   <div class="box">plain box</div>
   <div class="box kf" id="kf1">keyframed box one</div>
@@ -96,7 +97,7 @@ function deck(name, css, { probe = true, panel = false } = {}) {
 <section><h2>A build</h2><p>first</p><p data-build="fade-up">second</p></section>
 </div>
 ${probe ? `<pre id="test-sink">running…</pre>` : ''}
-<script src="${path.join(root, 'dist/decklight.js')}"></script>
+<script src="${urlOf(path.join(root, 'dist/decklight.js'))}"></script>
 <script>
 // the hosted macOS runner reports reduced motion, and the stylesheet then turns
 // data-animate loops off in CSS (no stub reaches that): noted, so the loop is
@@ -143,7 +144,7 @@ const kf = deck('keyframes', KEYFRAMES);
 
 // ---- ?print: entrances finished, holes named, the engine's own untouched ----
 {
-  const r = probe(`file://${kf}?print`);
+  const r = probe(`${urlOf(kf)}?print`);
   check('print: a forwards entrance is shown arrived', r.kf1 === '1' && r.kf2 === '1', `opacity ${r.kf1}, ${r.kf2}`);
   check('print: ...because the runtime finished it', r.kfState.every((s) => s === 'finished'), JSON.stringify(r.kfState));
   check('print: an entrance with no fill ends where the live one does', r.gone === '0', `opacity ${r.gone}`);
@@ -161,21 +162,21 @@ const kf = deck('keyframes', KEYFRAMES);
 // ---- ?print=handout: the sections are moved into pages, which restarts ----
 // ---- their animations; they are finished after the move -------------------
 {
-  const r = probe(`file://${kf}?print=handout`);
+  const r = probe(`${urlOf(kf)}?print=handout`);
   check('handout: the entrance is shown arrived', r.kf1 === '1' && r.kf2 === '1', `opacity ${r.kf1}, ${r.kf2}`);
   check('handout: the same slide is marked', r.marks[2] === 'a box “ends hidden” (opacity 0)', `data-invisible=${r.marks[2]}`);
 }
 
 // ---- ?capture: a still of the slide is the slide as it ends up -------------
 {
-  const r = probe(`file://${kf}?capture#/2/0`);
+  const r = probe(`${urlOf(kf)}?capture#/2/0`);
   check('capture: a still shows the entrance arrived', r.kf1 === '1' && r.kf2 === '1', `opacity ${r.kf1}, ${r.kf2}`);
   check('capture: no mark outside print', r.marks.every((m) => m === null), JSON.stringify(r.marks));
 }
 
 // ---- live: the deck still plays its own entrance ---------------------------
 {
-  const r = probe(`file://${kf}#/2/0`);
+  const r = probe(`${urlOf(kf)}#/2/0`);
   check('live: the entrance is still in its delay at 600ms', r.kf1 === '0', `opacity ${r.kf1}`);
   check('live: ...and running, not finished', r.kfState.length > 0 && r.kfState.every((s) => s === 'running'), JSON.stringify(r.kfState));
 }
@@ -183,7 +184,7 @@ const kf = deck('keyframes', KEYFRAMES);
 // ---- the Check deck panel: it judges the print view, and leaves the stage be ----
 let panelSaid = '';
 {
-  const r = probe(`file://${deck('panel', KEYFRAMES + SLOW, { panel: true })}#/2/0`);
+  const r = probe(`${urlOf(deck('panel', KEYFRAMES + SLOW, { panel: true }))}#/2/0`);
   check('panel: open', r.open === true, `open=${r.open}`);
   check('panel: invisible-in-print on slide 3 only', r.rows.length === 1 && r.rows[0].slide === 3,
     JSON.stringify(r.rows.map((f) => f.slide)));
@@ -205,7 +206,7 @@ function pdfPages(file) {
   const out = file.replace(/\.html$/, '.pdf');
   execFileSync(chromeBin('print-visibility-render'), [
     ...chromeArgs('--allow-file-access-from-files', '--virtual-time-budget=6000'),
-    '--no-pdf-header-footer', `--print-to-pdf=${out}`, `file://${file}?print`,
+    '--no-pdf-header-footer', `--print-to-pdf=${out}`, `${urlOf(file)}?print`,
   ], { stdio: ['ignore', 'ignore', 'ignore'] });
   const buf = readFileSync(out);
   const s = buf.toString('latin1');
@@ -226,9 +227,10 @@ function pdfPages(file) {
 }
 {
   console.log('     printing the keyframed deck and its control to PDF…');
-  const got = pdfPages(deck('keyframes-print', KEYFRAMES, { probe: false }));
+  const got = pdfPages(deck('keyframes-print', KEYFRAMES, { probe: false, writing: true }));
   const want = pdfPages(deck('control-print', CONTROL, { probe: false }));
   check('pdf: one page a slide', got.length === 5 && want.length === 5, `${got.length} / ${want.length} pages`);
+  check('pdf: an animated title prints as the plain title', got[0] > 0 && got[0] === want[0], `${got[0]} text runs, control ${want[0]}`);
   check('pdf: the keyframed slide prints its boxes', got[1] > 0 && got[1] === want[1], `${got[1]} text runs, control ${want[1]}`);
 }
 

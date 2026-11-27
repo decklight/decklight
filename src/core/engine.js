@@ -52,6 +52,7 @@ import { createBlockResize } from './block-resize.js';
 import { createOnboarding } from './onboarding.js';
 import { createOverflowWatch, clipReport } from './overflow.js';
 import { finishAuthorAnimations, markInvisible } from './print-visibility.js';
+import { hasWrittenText, playWriting } from './letter-writing.js';
 import { createPlaylist } from './playlist.js';
 import { createRangePicker, rangeLabel } from './ranges.js';
 import { createChoiceCard } from './choice.js';
@@ -461,6 +462,8 @@ export function init(userConfig = {}) {
   // with it; not `?print`: that reveals every build and changes the layout.
   const captureMode = params.has('capture');
   const liveCapture = params.get('capture') === 'live';
+  const motionCapture = captureMode && params.has('motion');
+  const writeMotion = !printMode && !params.has('embedded') && (!captureMode || liveCapture || motionCapture);
   if (captureMode) config.controls = false;
   // `?all` presents the hidden slides too — the author checking one, or a
   // reviewer who needs to see everything. Never the default: a hidden slide is
@@ -506,6 +509,7 @@ export function init(userConfig = {}) {
   // step, and `?capture=print` (the pptx export) is the printed page, whose
   // stepped blocks print whole (CODE_AND_MATH)
   if (captureMode && !liveCapture) root.classList.add('decklight-capture');
+  if (motionCapture) root.classList.add('decklight-write-frame');
   if (params.get('capture') === 'print') root.classList.add('decklight-capture-print');
 
   // Which dialog owns the keyboard right now. Filled in below the features, in
@@ -1989,6 +1993,7 @@ export function init(userConfig = {}) {
     }
     if (paint) { applyConcepts(paint, config.concepts ?? {}); applyNesting(paint); }
     if (background) { setupMedia([sec], { printMode }); if (idx === instance.state.slide) bleedNow(0); }
+    if (writeMotion && idx === instance.state.slide) playWriting(sec, { restart: false });
     if (scan) instance._rescanFor(scan !== true && scan.isConnected ? scan : sec);
     if (relayout) relayoutSlide(sec, idx);
   }
@@ -2186,6 +2191,12 @@ export function init(userConfig = {}) {
       return rec ? stepLabels(rec) : [];
     },
 
+    _hasWrittenText(slide) { return hasWrittenText(this._sections[slide - 1]); },
+
+    _replayWriting() {
+      if (writeMotion) playWriting(this._sections[this.state.slide - 1]);
+    },
+
     /**
      * Is slide `n` hidden from this showing? `data-hidden` (DECK_ANATOMY), and
      * `?all` overrides. A hidden slide KEEPS ITS NUMBER — as it does in
@@ -2259,6 +2270,7 @@ export function init(userConfig = {}) {
         this.state.slide = slide;
         this.state.step = step;
         withoutAnim(() => applyBuildState(rec, step));
+        this._replayWriting();
         this._emit('slide', { slide, total: this.state.totalSlides, direction });
         watchOverflow([this._sections[slide - 1]]); // measures, then keeps watching
       } else {

@@ -68,6 +68,8 @@ export const ATTRIBUTE_DOCS = {
   'data-nest': { on: 'svg shape or group', desc: 'off: keep the authored fill inside a filled panel; on: nest a shape the box test misses.' },
   'data-id': { desc: 'Matches this element across two auto-animate slides.' },
   'data-animate': { desc: 'A looping attention animation while the slide is on.' },
+  'data-write': { desc: 'Reveal plain text letter by letter. Use out to fade after writing or off to opt out.' },
+  'data-write-after': { desc: 'Reveal this element once the last animated character on the slide appears.' },
   'data-chart': { on: 'div.chart', desc: 'A chart drawn from the JSON inside it.' },
   'data-title': { on: 'chart or terminal', desc: 'The chart\'s title, or the terminal\'s window title.' },
   'data-aspect': { on: 'div.chart', desc: 'The chart\'s shape as w:h (default 16:9).' },

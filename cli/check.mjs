@@ -5,7 +5,7 @@
 /**
  * decklight check — one headless lint of one deck, with one exit code.
  *
- *   decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch]
+ *   decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch | --fix]
  *
  * The promise this repo makes (README, SPEC PRESENTING: the overflow guardrail
  * is assertable headlessly) is that an agent can verify its own work without
@@ -18,8 +18,7 @@
  *
  * So this is the one command whose whole job is to REPORT, per slide, what an
  * author or an agent would otherwise only find by looking — and to exit 1 when
- * something is actually wrong. Nothing here writes a file, starts a server, or
- * changes the deck.
+ * something is actually wrong. Only an explicit --fix can change the deck.
  *
  * TWO HALVES, AND WHY THEY ARE SEPARATE FUNCTIONS. `staticFindings` is pure
  * over the file text (with `exists` injected, it touches no disk at all) and
@@ -66,6 +65,7 @@ import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { stepRuns } from '../tools/steps.mjs';
 import { runMain } from './util.mjs';
 import { translationFindings } from './translate-files.mjs';
+import { legacyWriting, migrateWriting } from './migrate-writing.mjs';
 
 /**
  * One finding. `slide` is null for anything outside a section (the head), and
@@ -1192,7 +1192,7 @@ export function formatFindings(findings, { color = false, slides = 0 } = {}) {
   return lines;
 }
 
-const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch]
+const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait <ms>] [--watch | --fix]
   lints one deck and says, per slide, what you would otherwise only find by
   looking — for an AI agent after every edit, and for a human before a talk
 
@@ -1230,6 +1230,7 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
   --no-render    the file half only — no Chrome, no render (a machine without
                  Chrome skips that half by itself, and says so)
   --json         the findings as a JSON array: level, rule, slide, title, message
+  --fix          migrate split-letter titles and their translation records to data-write
   --wait <ms>    render budget for heavy decks  [8000]
   --watch        check, then check again each time the deck is saved: the
                  screen is cleared and the fresh findings printed under the
@@ -1248,8 +1249,14 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
 export async function checkOnce(src, deck, { render, wait }) {
   let html;
   try { html = readFileSync(src, 'utf8'); } catch { return null; }
-  const slides = sectionBodies(html).length;
+  const bodies = sectionBodies(html);
+  const slides = bodies.length;
   const findings = staticFindings(html, { dir: dirname(src), deck });
+  bodies.forEach((body, i) => {
+    const title = legacyWriting(body)[0];
+    if (title) findings.push(finding('warn', 'legacy-write', i + 1, title,
+      'the title is stored letter by letter. Run decklight check --fix to convert it and its translations to plain text'));
+  });
   // a deck's languages (SPEC TRANSLATION_RECORD): string comparison, no model
   try { findings.push(...translationFindings(src, html, { finding })); } catch { /* a record that cannot be read says so itself */ }
   if (render) {
@@ -1292,6 +1299,13 @@ export async function checkMain(args = [], { watchOpts = {} } = {}) {
   // is the useful answer on a machine that cannot run the other half.
   const json = args.includes('--json');
   const watching = args.includes('--watch');
+  if (args.includes('--fix')) {
+    if (watching) { console.error('decklight check: --fix and --watch cannot be combined'); return 1; }
+    try {
+      const count = migrateWriting(src);
+      if (count) console.error(`check: converted ${count} split-letter title${count === 1 ? '' : 's'} to plain text`);
+    } catch (e) { console.error(`decklight check: could not migrate split-letter titles: ${e.message}`); return 1; }
+  }
   // a stream of JSON arrays over a cleared screen is nobody's input: an agent
   // checks once per edit, and a watch is a screen for a person
   if (watching && json) {

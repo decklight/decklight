@@ -1043,6 +1043,7 @@ const STEP_PROBE = `<script>
   // is on the section itself and does not count: a cut between slides stays a cut.
   function motion(d, i) {
     var sec = d._sections[i - 1];
+    if (d._hasWrittenText?.(i)) return 2;
     var inside = function (a) { var t = a.effect && a.effect.target; return t && t !== sec && sec.contains(t); };
     var long = function (a) { return !(a instanceof CSSTransition) && a.effect.getComputedTiming().endTime > ${MOTION_WINDOW_S * 1000}; };
     if (sec.querySelector('animate, animateMotion, animateTransform, set') || document.getAnimations().filter(inside).some(long)) return 2;
@@ -1159,7 +1160,9 @@ async function loadBeat(page, url, slide, step) {
  * still cuts between slides, and so does this.
  */
 export async function captureMotion(page, { url, slide, from = null, to, offset = 0, count, fps, frameAt, poses = [] }) {
-  await loadBeat(page, url, slide, from ?? to);
+  const movie = new URL(url);
+  movie.searchParams.set('motion', '');
+  await loadBeat(page, movie, slide, from ?? to);
   if (poses.length) await page.evaluate(characterPose(poses[0]));
   await page.evaluate(`window.__dlBefore = new Set(document.getAnimations()); window.__dlSeek = (t, offset) => {
     const own = (el) => el && el.tagName === 'SECTION' && !el.parentElement.closest('section');

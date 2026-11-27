@@ -85,6 +85,7 @@ function playTalk(beats, fps, fault) {
     }
   }
   show(0);
+  deck._replayWriting?.();
   const started = wall();
   const end = beats.at(-1).end;
   let lastPaint = performance.now();
