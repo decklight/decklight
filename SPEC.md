@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` · `PRESENTING_NAVIGATION` · `PRESENTING_CHROME` · `PRESENTING_LOOK` · `PRESENTING_MODES` · `PRESENTING_EDITING` · `PRESENTING_WRITING` · `PRESENTING_VOICE` · `PRESENTING_BROWSER_VOICE` · `FACE_LAYOUT` · `PRESENTING_FIT` · `PRESENTING_OUTPUT` | moving through a deck, the presenter's chrome, themes, write and no-trust mode, editing, the writing tools, the voice, the browser's own voice when no bridge answers, keeping a slide on the slide, and print and export |
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
-| `TRANSLATIONS` · `TRANSLATION_UNITS` · `TRANSLATION_RECORD` · `TRANSLATE_CLI` · `TRANSLATION_VOICE` · `TRANSLATION_SWITCH` | **draft, not built**: a deck in several languages, each a file generated from the source deck and a record of its translated text, with its own voice, captions and video |
+| `TRANSLATIONS` · `TRANSLATION_UNITS` · `TRANSLATION_RECORD` · `TRANSLATE_CLI` · `TRANSLATE_PANEL` · `TRANSLATION_VOICE` · `TRANSLATION_SWITCH` | **draft, not built**: a deck in several languages, each a file generated from the source deck and a record of its translated text, with its own voice, captions and video |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | **in [`PLATFORM.md`](PLATFORM.md)**: catalogs of themes, templates, skills and engines, registered not fetched; the unit library, its pins, gates and calling conventions; voices, agents and engines as units |
 | `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` · `DESIGN_SYSTEM_MIGRATIONS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets; what each major version renamed, and the deck that took an older one |
@@ -1837,6 +1837,68 @@ not fit.
   `--dry-run` runs the agent and prints what would change. `--no-agent` regenerates the translations from the
   record alone: the structure catches up, the words that need a model stay behind and are counted.
 
+### TRANSLATE_PANEL · Languages…, in write mode
+
+Everything `decklight translate` does can be done without leaving the deck. While authoring, `/` →
+**Language: Languages…** (write mode only, so never under `--no-trust`) is the one screen for a deck's
+languages, opened from the source or from any of its translations and showing the same thing from each. It is
+a second door to the command, not a second implementation: every run it starts is the `decklight translate`
+it would be at a terminal, with the same matching, the same checks and the same report.
+
+**The list asks no model anything** (`GET /deck/edit/translations`, which is `translate --status` as JSON):
+the source first, then one row per language in `languages`, each named in its own language with its tag
+(*Français · fr*). A row says one of three things: ✓ *up to date*; ↑ *behind*, with the count and the slides
+(*4 sentences behind on "Pricing" and "Roadmap"*, a slide named by its title as everywhere else); ○ *not
+translated yet*. Under it, how much a person has read (*212 of 240 reviewed*), any slide the last run left
+overflowing, and how many recorded takes the language's script has moved away from (PRESENTING_VOICE), since
+a re-translated beat is a take to record again and the panel is where that becomes true. The last row is
+**Add a language…**.
+
+**The keys.** **⏎** updates the selected language; **A** updates every language that is behind; **O** opens
+the selected language's deck at the slide you are on (`TRANSLATION_SWITCH`); **S** narrows the next run to
+the slide on screen. **Add a language…** takes a BCP 47 tag, typed or picked from a short list of common
+ones, shows how it will be named and which file it will write (`talk.de.html`), adds it to `languages` and
+starts its first run. Removing a language is not a key: it is deleting two files and one word of the
+configuration, which git already does well and a panel would only make easy to do by accident.
+
+**Before a run starts the panel says what it will send and to whom**: the slides' text and notes, to the
+agent named (the one the writing tools use, PRESENTING_WRITING, changed in the same picker), with the number
+of slides that need a model and the number that will catch up without one. Most agents are cloud services,
+and a deck's words leaving the machine is a thing to be told once per run, not discovered. With no agent on
+the machine the panel offers the run that needs none (`--no-agent`: structure catches up, words stay
+behind) and says what is missing.
+
+**A run** is `POST /deck/edit/translate { to: [lang…], slides?: [n…], agent?: false }` (409 while another
+translate, a rewrite, a review or an agent edit runs; 400 naming what is missing with no agent and none
+declined; 404 for a language not in `languages`). Progress rides SSE `translate` events into the language's
+own row (*slide 7 of 12 · checking fit*), three slides at a time, and **Esc** on a running row stops it after
+the slides in flight: what was answered and passed is written, the rest stays behind and is counted. The
+closing line is the command's report (*French: 4 sentences updated · slide 5 left as it was: a `[pause]` was
+dropped · slide 9 still overflows*), and a slide named in it is a link that opens that language there.
+
+**The answers are written, not held.** A rewrite of the open deck is held for review because it changes the
+file in front of the author (PRESENTING_WRITING). A translation is another file: the open deck is not
+touched, the run is one commit's worth of change in `talk.fr.html` and its record, and what tells a person
+which of it is unread is the record's `state`, kept for exactly this. Undo is git's, and the panel does not
+pretend to another.
+
+**Reading a translation is done in the translation.** Open in write mode, a deck with `translationOf` marks
+each `machine` unit on the slide (a quiet rule beside the text, never in a render, a bundle or in front of
+an audience), and the panel opened there lists the slides with unread units, in order. Editing a unit makes
+it `reviewed`, as the record already says; **R** on a slide marks what is on it `reviewed` without changing
+it (`POST /deck/edit/translation/reviewed { slide }`), because agreeing with a sentence is also reading it.
+The source's sentence is shown beside the one selected, from the record, so nobody needs two windows to
+check a translation.
+
+**The source tells you when it has left a language behind, and does nothing about it.** Saving an edit to
+the source that puts a language behind posts one message (*French and Spanish are now 2 sentences behind ·
+Languages…*, PRESENTING), once per language until it is caught up, and the palette gains **Language: Update
+translations** while any is behind. Nothing is translated on save: a run costs an agent and sends the deck's
+words out, and neither happens because somebody fixed a typo.
+
+**Where the tools that change structure are refused** on a translation (`TRANSLATIONS`), the refusal names
+the source file and offers to open it at the same slide, which is the same slide.
+
 ### TRANSLATION_VOICE · Voice, captions and video per language
 
 A translation is a deck, so everything in PRESENTING_VOICE applies to it unchanged: its notes are its script,
@@ -1873,7 +1935,8 @@ A deck with `languages`, and each of its translations, shows **Language** rows i
 source's language and each translation's, each named in its own language. Choosing one opens that file at the same slide and step, which is the same place because
 the structure is the same. It is a link to a sibling file: nothing is fetched, merged or translated in the
 page, and no-trust mode needs no new permission for it (PRESENTING_MODES). A translation that is behind says
-so beside its name in write mode and nowhere else. **A bundled or published file travels alone unless asked otherwise.** `bundle` and `publish` take
+so beside its name in write mode and nowhere else, and write mode adds the rows that open the panel
+(`TRANSLATE_PANEL`). **A bundled or published file travels alone unless asked otherwise.** `bundle` and `publish` take
 `--languages all|fr,es`: each language named is written as its own self-contained file beside the output
 (`out.html`, `out.fr.html`), and the switch in each links the others. Without the option the file is one
 language and shows no switch, since a link to a file that did not travel is a dead row.
