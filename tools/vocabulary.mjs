@@ -201,6 +201,8 @@ export const CONFIG_KEYS = [
   { name: 'narration', type: 'object' },
   { name: 'bleed', type: 'boolean' },
   { name: 'edit', type: 'object' },
+  { name: 'languages', type: 'array' },
+  { name: 'translationOf', type: 'string' },
 ];
 
 // ── lookups ──────────────────────────────────────────────────────────────────

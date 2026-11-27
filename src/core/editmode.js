@@ -761,6 +761,7 @@ export function createEditMode({
           noteHistory(j);
           locked = j.locked === true;
           editAvailable = !locked;
+          for (const fn of readyListeners) { try { fn(); } catch { /* a listener's own problem */ } }
           paintLockChip();
           syncEditing();   // editing is on from the moment write mode answers
           // The speaker view saves rehearsal timings through this (PRESENTING
@@ -4685,6 +4686,7 @@ export function createEditMode({
   const reviewListeners = new Set();
   // told when the marketplace auto-check a starting server ran lands
   const marketplaceListeners = new Set();
+  const readyListeners = new Set();
   async function loadReview() {
     try {
       const j = await (await fetch(editBase + '/deck/edit/review')).json();
@@ -5032,6 +5034,8 @@ export function createEditMode({
     onReview: (fn) => { reviewListeners.add(fn); },
     /** Be told when the marketplace auto-check's answer lands (MARKETPLACES_SCREEN). */
     onMarketplaces: (fn) => { marketplaceListeners.add(fn); },
+    /** Be told when the edit server has answered and write mode is up. */
+    onReady: (fn) => { readyListeners.add(fn); if (editAvailable) fn(); },
     /** Check deck…'s fixes: the server's own (`fixProblem`), and an ask to the A agent (`askAgent`); which agents there are; a word when a write lands. */
     fixProblem,
     askAgent,

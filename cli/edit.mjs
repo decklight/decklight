@@ -179,6 +179,7 @@ import { escapeHtml, staticFiles, listenTakingOverIfNeeded, allowEditRequest, al
 import { reviewsWaiting, reviewLine, reviewCheckSuppressed } from './review-remote.mjs';
 import { configureEngine, loadCredentials, forgetCredentials, redactAnswers, validateSchema, provenance, BRIDGE_ADDR, CONFIGURED, UNREACHABLE, PREREQUISITE } from './wizard.mjs';
 import { parseSteps, STEP_NAME_MAX } from '../tools/steps.mjs';
+import { registerTranslateRoutes, structureRefusal, newlyBehind } from './edit-translate.mjs';
 
 // The `/deck/edit/*` surface answers loopback only — but "loopback" is the wrong
 // boundary for the threat (#222). The dangerous caller is not off-machine: it
@@ -3840,6 +3841,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
     if (next === before) return false;
     history.record(also ? { deck: before, ...also } : before, undefined, next);
     writeDeck(next);
+    // a save to a source that puts a language behind says so, once per
+    // language until it is caught up (TRANSLATE_PANEL); nothing is translated
+    if (/"languages"\s*:/.test(next)) {
+      setImmediate(() => {
+        try {
+          const langs = newlyBehind(deckPath, before, next);
+          if (langs.length) broadcast('translate', { state: 'behind', langs });
+        } catch { /* a record that cannot be read is check's to say */ }
+      });
+    }
     return true;
   };
 
@@ -6206,6 +6217,10 @@ export async function editMain(args, { onListen = null, client } = {}) {
     ownOrigin: (req) => isOwnOrigin(req, actualPort),
   });
 
+  // And its languages (cli/edit-translate.mjs, TRANSLATE_PANEL): what is
+  // behind, and a run of decklight translate, as a child process
+  registerTranslateRoutes(routes, { deckPath, broadcast });
+
   // The routes that run BEFORE the shared body read, and the only reason the
   // dispatcher below has a sequence at all. `/deck/edit/narration/record`'s body is BINARY and
   // megabytes of it — a slide of speech is ~48 kB a second — so the string
@@ -6362,6 +6377,16 @@ export async function editMain(args, { onListen = null, client } = {}) {
       if (holding && req.method === 'POST' && url.pathname.startsWith('/deck/edit/') && !UNLOCKED_POSTS.has(url.pathname)
           && url.pathname !== '/deck/edit/candidate/discard') {
         return json(409, { ok: false, error: 'a fix is being prepared for review — wait for it, or stop the agent' });
+      }
+      // a translation takes its structure from its source (TRANSLATIONS):
+      // the routes that change it are refused here, naming the file to use
+      if (req.method === 'POST') {
+        const refused = structureRefusal(deckPath, url.pathname);
+        if (refused) {
+          // said on the page however the write was sent: its one button opens the source
+          broadcast('translate', { state: 'refused', ...refused });
+          return json(409, { ok: false, translation: true, ...refused });
+        }
       }
       const key = `${req.method} ${url.pathname}`;
       const prefixed = routes.has(key) ? null

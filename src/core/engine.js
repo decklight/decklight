@@ -69,6 +69,7 @@ import { paletteRows } from './palette.js';
 import { createPreview } from './preview.js';
 import { createDesignSystemsPicker, createSlideTemplatePicker, createLookOffer } from './design-systems.js';
 import { createMarketplaces, autoCheckToastText } from './marketplaces.js';
+import { createLanguages, languageRows, languageHref } from './languages.js';
 import { createConceptsEditor, conceptsOn, conceptSuggestions, markConceptHints } from './concepts.js';
 import { setupSlideTemplates, isTemplateRef, pageDesignSystems, fileIndexOf, authoredIndex } from './design-system.js';
 import { createLayoutPicker } from './layout-picker.js';
@@ -773,6 +774,15 @@ export function init(userConfig = {}) {
     debugLog: (...a) => debugLog(...a),
   });
   overlays.register({ isOpen: marketplaces.isOpen, close: marketplaces.close, keydown: marketplaces.keydown });
+  // Languages… (SPEC TRANSLATE_PANEL): the deck's languages, what is behind,
+  // and decklight translate run from here; on a translation, what is unread
+  const languages = createLanguages({
+    root, toast, actionToast,
+    base: () => (editmode?.available() ? editmode.base() : null),
+    state: () => instance.state,
+    debugLog: (...a) => debugLog(...a),
+  });
+  overlays.register({ isOpen: languages.isOpen, close: languages.close, keydown: languages.keydown });
   const designSystems = createDesignSystemsPicker({
     root, toast,
     base: () => (editmode?.available() ? editmode.base() : null),
@@ -1184,7 +1194,7 @@ export function init(userConfig = {}) {
    * VS Code's command palette reads: `Voice: AI voice…`, `Share: Export to
    * PDF…`. All of them sit at the root; typing the category narrows to it.
    */
-  const PALETTE_CATEGORIES = ['Running', 'Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
+  const PALETTE_CATEGORIES = ['Running', 'Go to', 'Slide', 'Edit', 'Look', 'Voice', 'Language', 'Present', 'Review', 'Git', 'Share', 'Help', 'Preferences'];
 
   function paletteCommands() {
     const has = (fn) => typeof fn === 'function';
@@ -1308,6 +1318,18 @@ export function init(userConfig = {}) {
       { label: 'Voice and narration…', cat: 'Voice', hint: 'V', alias: 'narration voice audio track picker panel', run: () => openNarrPicker('tracks') },
       { label: 'AI voice…', cat: 'Voice', alias: 'live voice tts synthesize tone gemini elevenlabs engine', run: () => openNarrPicker('voices') },
       { label: 'On screen…', cat: 'Voice', alias: 'character avatar lipsync face camera cartoon talking head visemes narrator', run: () => openNarrPicker('screen') },
+      // ── Language (TRANSLATION_SWITCH, TRANSLATE_PANEL) ───────────────────
+      // the same deck in another language, at the same slide and step: a link
+      // to a sibling file, in every mode
+      ...languageRows(document, location.pathname).filter((r) => !r.here).map((r) => ({
+        label: r.name, cat: 'Language', alias: `language translation switch ${r.lang}`,
+        run: () => { location.href = languageHref(r, instance.state, location.search); },
+      })),
+      write({ label: 'Languages…', cat: 'Language',
+        alias: 'translate translation translations language languages localize localise i18n french spanish german japanese add a language review reviewed read',
+        run: () => languages.open() }),
+      languages.behind().length > 0 && write({ label: 'Update translations', cat: 'Language',
+        alias: 'translate behind stale out of date languages update', run: () => languages.updateBehind() }),
       narration.canPreviewFace() && { label: `${narration.writePreviewOn ? 'Hide' : 'Show'} who is on screen, while editing`, cat: 'Voice',
         alias: 'overlay placement preview write mode face character camera cartoon narrator where', run: narration.toggleWritePreview },
       { label: character.solo ? 'Bring the slides back' : 'Narrator fills the screen', cat: 'Voice', alias: 'character solo centre center stage narrator only fullscreen full screen avatar show only the character slides', run: () => narration.applySolo(!character.solo) },
@@ -3881,6 +3903,10 @@ export function init(userConfig = {}) {
     ], { onDismiss: dismiss });
   }
   editmode.onMarketplaces?.(() => { offerMarketplaceUpdates(); });
+  // the languages' state, read once write mode is up, so the palette knows
+  // what is behind; a translation's panel follows the slide on screen
+  editmode.onReady?.(() => languages.warm());
+  instance.on('slide', () => languages.slideChanged());
 
   // The video export (PRESENTING_OUTPUT): which slides, and how — format,
   // quality, subtitles — on one card, then the door every export uses. A range
