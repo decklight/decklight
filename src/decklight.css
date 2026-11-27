@@ -2716,6 +2716,17 @@
 .decklight-marketplaces .mk-ver:empty { display: none; }
 .decklight-marketplaces .mk-change .mk-tag { margin-left: 2px; }
 .decklight-marketplaces .mk-newer .narr-fix { margin: 2px 0 2px calc(1.2em + 6px); flex-basis: 100%; }
+
+/* Languages… (TRANSLATE_PANEL): the Marketplaces card's rows, plus a
+   translation's slide read side by side, source and translation */
+.decklight-languages .mk-input { width: 100%; box-sizing: border-box; margin: 6px 0; padding: 6px 8px; font: inherit; color: inherit;
+  background: rgba(255, 255, 255, .06); border: 1px solid rgba(255, 255, 255, .18); border-radius: 6px; }
+.decklight-languages .mk-log { font-variant-numeric: tabular-nums; opacity: .8; }
+.decklight-languages .mk-units { display: grid; gap: 6px; margin: 4px 12px 8px; max-height: 40vh; overflow: auto; }
+.decklight-languages .mk-unit { display: grid; grid-template-columns: 5.5em 1fr 1fr auto; gap: 8px; align-items: baseline; font-size: .92em; }
+.decklight-languages .mk-kind { opacity: .6; }
+.decklight-languages .mk-from { opacity: .7; }
+.decklight-languages .mk-unread .mk-to { text-decoration: underline dotted rgba(255, 207, 139, .7); text-underline-offset: 3px; }
 /* Concept colors… (SVG_DIAGRAMS): one row per concept, its six slots beside it */
 .decklight-concepts .narr-card { width: min(640px, 92vw); }
 .decklight-concepts .cc-row { display: flex; align-items: center; gap: 10px; }
@@ -5400,3 +5411,13 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
 .decklight-inspector[data-dock="bottom"] .ins-rows :is(dt, dd):nth-child(-n + 6) { border-top: 0; }
 .decklight-inspector[data-dock="bottom"] .ins-rows dd { padding-right: 18px; }
 .decklight-deckcheck[data-dock="bottom"] .dc-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-content: start; column-gap: 8px; }
+
+/* `decklight video --disclose` (TRANSLATION_VOICE): the line on the first
+   slide saying an AI voice narrates it, in the render only */
+.decklight section .decklight-disclose { position: absolute; left: 0; right: 0; bottom: 3%; margin: 0; text-align: center;
+  font-size: 18px; line-height: 1.3; opacity: .72; color: var(--muted, currentColor); pointer-events: none; }
+
+/* a translation in write mode (TRANSLATE_PANEL): a piece of its text nobody
+   has read yet, marked where it stands; the panel's R marks the slide read */
+.decklight .decklight-unread { text-decoration: underline dotted rgba(255, 190, 90, .85); text-decoration-thickness: 2px; text-underline-offset: .18em; }
+.decklight-languages .mk-warn-line { color: #ffcf8b; }

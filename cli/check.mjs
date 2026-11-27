@@ -65,6 +65,7 @@ import { configBlock, hasDoctype, isDeck } from './runtime-link.mjs';
 import { attributeFindings, configFindings } from '../tools/vocabulary.mjs';
 import { stepRuns } from '../tools/steps.mjs';
 import { runMain } from './util.mjs';
+import { translationFindings } from './translate-files.mjs';
 
 /**
  * One finding. `slide` is null for anything outside a section (the head), and
@@ -1205,7 +1206,12 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
                       Decklight does not read, each with what was meant
                       (an attribute close to nothing Decklight reads is yours,
                       and left alone)
-    from a render     slides the overflow guardrail measured as clipped, slides
+    its languages     on a translation (talk.fr.html): a piece translated from
+                      words the source no longer has, or not translated, a
+                      slide changed in more than its words, a <html lang> that
+                      is not the record's. On the source, a warning per
+                      language behind. decklight translate fixes the first two
+    from a render    slides the overflow guardrail measured as clipped, slides
                       crowded past SLIDE_DENSITY (~3–4 bullets or ~2 short
                       paragraphs per column; a warning, and data-dense-ok on a
                       section says it is meant), split layouts fighting their
@@ -1239,11 +1245,13 @@ const USAGE = `usage: decklight check <deck.html> [--no-render] [--json] [--wait
  * Returns the findings in order and the slide count; `null` when the deck is
  * not there to read (a watch catches it mid-save).
  */
-async function checkOnce(src, deck, { render, wait }) {
+export async function checkOnce(src, deck, { render, wait }) {
   let html;
   try { html = readFileSync(src, 'utf8'); } catch { return null; }
   const slides = sectionBodies(html).length;
   const findings = staticFindings(html, { dir: dirname(src), deck });
+  // a deck's languages (SPEC TRANSLATION_RECORD): string comparison, no model
+  try { findings.push(...translationFindings(src, html, { finding })); } catch { /* a record that cannot be read says so itself */ }
   if (render) {
     try {
       const dom = await render(printUrl(src), wait);
@@ -1263,7 +1271,7 @@ async function checkOnce(src, deck, { render, wait }) {
 }
 
 /** A one-shot Chrome per render: `--dump-dom` under a virtual-time budget. */
-const oneShot = (bin) => (url, wait) => runAsync(bin, [
+export const oneShot = (bin) => (url, wait) => runAsync(bin, [
   ...chromeArgs('--allow-file-access-from-files', `--virtual-time-budget=${wait}`),
   '--dump-dom', url,
 ], {

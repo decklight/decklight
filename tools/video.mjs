@@ -28,7 +28,7 @@ import { chromeBin, chromeArgs } from './chrome.mjs';
 import { openPage } from './cdp.mjs';
 import { argReader, isMain } from './args.mjs';
 import { renderThemeParams } from './render-theme.mjs';
-import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments } from './deck-html.mjs';
+import { injectBeforeBodyEnd, sectionBodies, isHiddenSection, NOTES_ASIDE, cleanNotes, notesSegments, deckLang } from './deck-html.mjs';
 import { VIDEO_FORMATS, VIDEO_QUALITIES, VIDEO_SUBTITLES, VIDEO_RENDER_MODES, valuesOf } from './video-options.mjs';
 import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, canonMarks, hasWords } from './sentences.mjs';
 import { serveForRender } from '../cli/serve.mjs';
@@ -72,7 +72,12 @@ const HELP = `decklight video <deck.html> [options] — render the deck to a nar
                        (slower to render, sharper, larger)
   --subtitles <how>    none (the default) · embed (a track the player can turn
                        on) · file (a .srt beside the video, .vtt for webm) —
-                       what the narration says, timed against its audio
+                       what the narration says, timed against its audio, cut
+                       to the lengths the deck's language reads at
+  --disclose           a video voiced by an AI voice says so in its metadata
+                       by default; this also shows it, a line on the first
+                       slide in the deck's language
+  --no-disclose        write neither
   --render <mode>     exact (default, repeatable) or live (real-time capture,
                       may drop frames and cannot resume)
   --parallel <n>      maximum Chrome pages for exact render (default: up to 6,
@@ -652,20 +657,40 @@ export function concatList(segments) {
  * when there are subtitles to embed, mapping them in as a track of the
  * container's own kind (the only step that encodes anything, and it is text).
  */
-export function concatArgs(input, out, { format = 'mp4', subtitles = null, concat = true } = {}) {
+export function concatArgs(input, out, { format = 'mp4', subtitles = null, concat = true, lang = null, audio = false, comment = null } = {}) {
   const enc = ENCODINGS[format];
+  const code = iso639b(lang);
   return ['-y', ...(concat ? ['-f', 'concat', '-safe', '0'] : []), '-i', input,
     ...(subtitles ? ['-i', subtitles, '-map', '0', '-map', '1'] : []),
     '-c', 'copy', ...(subtitles ? ['-c:s', enc.subtitleCodec] : []),
+    ...(code && audio ? ['-metadata:s:a:0', `language=${code}`] : []),
+    ...(code && subtitles ? ['-metadata:s:s:0', `language=${code}`] : []),
+    ...(comment ? ['-metadata', `comment=${comment}`] : []),
     ...(enc.faststart ? ['-movflags', '+faststart'] : []), out];
 }
 
 /** A subtitle longer than this is split into cues of its own; two lines of about half each is what a player shows. */
 export const CUE_MAX_CHARS = 84;
 
+/**
+ * The longest cue for a language (SPEC TRANSLATION_VOICE): two lines of 42 for
+ * a language written in words, and of what a reader takes in at a glance for
+ * one written without spaces (Japanese 13 a line, Chinese and Korean 16,
+ * the lengths broadcasters set).
+ */
+export function cueMaxChars(lang) {
+  let script = null;
+  try { script = lang ? new Intl.Locale(lang).maximize().script : null; } catch { script = null; }
+  if (script === 'Jpan') return 26;
+  if (script === 'Hans' || script === 'Hant' || script === 'Kore') return 32;
+  return CUE_MAX_CHARS;
+}
+
 /** Words into runs of at most `max` characters, never mid-word. */
 function chunkCue(text, max) {
   if (text.length <= max) return [text];
+  // a language written without spaces is cut by characters
+  if (!/\s/.test(text)) return text.match(new RegExp(`[\\s\\S]{1,${max}}`, 'gu')) ?? [text];
   const out = [];
   let line = '';
   for (const word of text.split(' ')) {
@@ -679,6 +704,7 @@ function chunkCue(text, max) {
 function wrapCue(text, line = CUE_MAX_CHARS / 2) {
   if (text.length <= line) return text;
   const mid = text.length / 2;
+  if (!/\s/.test(text)) return `${text.slice(0, Math.ceil(mid))}\n${text.slice(Math.ceil(mid))}`;
   let at = -1;
   for (let i = text.indexOf(' '); i >= 0; i = text.indexOf(' ', i + 1)) if (at < 0 || Math.abs(i - mid) < Math.abs(at - mid)) at = i;
   return at < 0 ? text : `${text.slice(0, at)}\n${text.slice(at + 1)}`;
@@ -703,7 +729,7 @@ function wrapCue(text, line = CUE_MAX_CHARS / 2) {
  * @param holdOf  frame → seconds one ⟨PAUSE⟩ holds on its slide
  * @returns {Array<{start, end, text}>} seconds from the start of the video
  */
-export function subtitleCues(plan, textOf, holdOf = () => 0) {
+export function subtitleCues(plan, textOf, holdOf = () => 0, { max = CUE_MAX_CHARS } = {}) {
   const cues = [];
   let t = 0;
   for (const p of plan) {
@@ -715,7 +741,7 @@ export function subtitleCues(plan, textOf, holdOf = () => 0) {
     // pieces of { text, weight }, each run's then its hold
     const cut = runs.map((r) => ({
       // an audio tag is direction for the voice, never a subtitle
-      pieces: splitSentences(r.text).map(stripAudioTags).filter(Boolean).flatMap((s) => chunkCue(s, CUE_MAX_CHARS))
+      pieces: splitSentences(r.text).map(stripAudioTags).filter(Boolean).flatMap((s) => chunkCue(s, max))
         .map((text) => ({ text, weight: text.length })),
       pause: r.pause,
     }));
@@ -724,7 +750,7 @@ export function subtitleCues(plan, textOf, holdOf = () => 0) {
     for (const c of cut) {
       for (const piece of c.pieces) {
         const len = spoken * (piece.weight / total);
-        cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece.text) });
+        cues.push({ start: round(at), end: round(at + len), text: wrapCue(piece.text, max / 2) });
         at += len;
       }
       at += c.pause * hold;
@@ -748,9 +774,43 @@ export function toSrt(cues) {
 }
 
 /** WebVTT: a header, a dot before the milliseconds, and `<` / `&` escaped — cue text is markup there. */
-export function toVtt(cues) {
+export function toVtt(cues, { lang = null } = {}) {
   const esc = (t) => safeCue(t).replaceAll('&', '&amp;').replaceAll('<', '&lt;');
-  return `WEBVTT\n\n${cues.map((c) => `${stamp(c.start, '.')} --> ${stamp(c.end, '.')}\n${esc(c.text)}\n`).join('\n')}`;
+  return `WEBVTT\n${lang ? `Language: ${lang}\n` : ''}\n${cues.map((c) => `${stamp(c.start, '.')} --> ${stamp(c.end, '.')}\n${esc(c.text)}\n`).join('\n')}`;
+}
+
+/**
+ * The ISO 639-2 code a container tags a stream's language with (`fre` for
+ * `fr`), or null for a language not listed: an untagged stream rather than a
+ * wrong tag.
+ */
+export function iso639b(lang) {
+  const p = String(lang ?? '').trim().split(/[-_]/)[0].toLowerCase();
+  return ({
+    en: 'eng', fr: 'fre', de: 'ger', es: 'spa', it: 'ita', pt: 'por', nl: 'dut', ja: 'jpn', zh: 'chi', ko: 'kor',
+    ru: 'rus', pl: 'pol', sv: 'swe', da: 'dan', fi: 'fin', no: 'nor', nb: 'nob', tr: 'tur', ar: 'ara', he: 'heb',
+    hi: 'hin', cs: 'cze', el: 'gre', hu: 'hun', ro: 'rum', uk: 'ukr', vi: 'vie', th: 'tha', id: 'ind', ca: 'cat',
+  })[p] ?? null;
+}
+
+/** "Narrated by an AI voice (ElevenLabs)" in the deck's language, English where it has no line of its own. */
+export function disclosureLine(engine, lang) {
+  const by = engine ? ` (${ENGINE_NAMES[engine] ?? engine})` : '';
+  const p = String(lang ?? '').split(/[-_]/)[0].toLowerCase();
+  const line = ({
+    fr: 'Narration par une voix de synthèse', de: 'Gesprochen von einer KI-Stimme', es: 'Narrado por una voz sintética',
+    it: 'Narrazione con una voce sintetica', pt: 'Narrado por uma voz sintética', nl: 'Ingesproken door een AI-stem',
+    ja: 'AI音声によるナレーション', zh: '由AI合成语音讲解', ko: 'AI 음성 내레이션',
+  })[p] ?? 'Narrated by an AI voice';
+  return `${line}${by}`;
+}
+const ENGINE_NAMES = { elevenlabs: 'ElevenLabs', gemini: 'Gemini', chirp: 'Google Chirp', piper: 'Piper', say: 'macOS', sapi: 'Windows' };
+
+/** The deck with the disclosure line on its first slide, for the frames of a render. */
+export function withDisclosure(html, line) {
+  const esc = String(line).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let done = false;
+  return String(html).replace(/<\/section>/i, (m) => { done = true; return `<p class="decklight-disclose" data-decklight-disclose>${esc}</p>${m}`; }) + (done ? '' : '');
 }
 
 /** ffprobe argv for a file's real duration in seconds (prints one number). */
@@ -1423,10 +1483,16 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
     // `?gen=` the same way, for a theme that lives only in a browser.
     const renderQuery = `?${['capture', ...themeParams].join('&')}`;
     let probing = false;
+    // a video voiced by an AI voice says so (TRANSLATION_VOICE): in its
+    // metadata unless --no-disclose, and on its first slide with --disclose
+    const deckLanguage = deckLang(html);
+    const aiVoice = narration?.engine && !argv.includes('--no-disclose') ? narration.engine : null;
+    const disclosure = aiVoice ? disclosureLine(aiVoice, deckLanguage) : null;
+    const showDisclosure = !!disclosure && argv.includes('--disclose');
     const inject = (text, file) => {
       if (resolve(file) !== deck) return text;
       if (probing) return injectBeforeBodyEnd(exposeInstance(text), STEP_PROBE) ?? text;
-      return text;
+      return showDisclosure ? withDisclosure(text, disclosure) : text;
     };
     const deckPath = '/' + relative(root, deck).split(sep).map(encodeURIComponent).join('/');
 
@@ -1528,13 +1594,13 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
           return k >= 0 ? (notesSegments(notes, { marks: true })?.[k] ?? '') : cleanNotes(notes, { marks: true });
         };
         const markHolds = markerPauses(html);
-        const cues = narration ? subtitleCues(basePlan, textOf, (p) => markHolds[p.slide - 1] ?? 0) : [];
+        const cues = narration ? subtitleCues(basePlan, textOf, (p) => markHolds[p.slide - 1] ?? 0, { max: cueMaxChars(deckLanguage) }) : [];
         const enc = ENCODINGS[format];
         if (!cues.length) {
           console.warn('  subtitles: nothing is spoken in this render — none written');
         } else {
           const file = join(work, `subtitles.${enc.subtitleExt}`);
-          writeFileSync(file, enc.subtitleExt === 'vtt' ? toVtt(cues) : toSrt(cues));
+          writeFileSync(file, enc.subtitleExt === 'vtt' ? toVtt(cues, { lang: deckLanguage }) : toSrt(cues));
           if (subtitles === 'embed') embedded = file;
           else sidecar = file;
           log(`  subtitles: ${cues.length} cue${cues.length === 1 ? '' : 's'} ${embedded ? 'embedded' : `→ ${subtitlesOut(out, format)}`}`);
@@ -1548,7 +1614,10 @@ export async function videoMain(argv, { exec: execRaw = run, log = console.log }
       try {
         const name = basename(out);
         const staged = join(outputDir, name.toLowerCase().endsWith('.' + format) ? name : name + '.' + format);
-        await exec('ffmpeg', concatArgs(input, staged, { format, subtitles: embedded, concat }));
+        await exec('ffmpeg', concatArgs(input, staged, {
+          format, subtitles: embedded, concat, lang: deckLanguage, audio: !!narration,
+          comment: disclosure ? `${disclosure} — a synthetic voice, not a recording of a person` : null,
+        }));
         total = Number((await exec('ffprobe', ffprobeArgs(staged))).stdout.trim());
         const stagedSidecar = sidecar && join(outputDir, basename(sidecar));
         if (stagedSidecar) writeFileSync(stagedSidecar, readFileSync(sidecar));

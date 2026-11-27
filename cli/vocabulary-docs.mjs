@@ -131,4 +131,6 @@ export const CONFIG_DOCS = {
   narration: 'The deck\'s voice: recorded tracks (files), the live bridge and its pauses.',
   bleed: 'Paint a slide\'s background art to the screen\'s edges (default true).',
   edit: 'Write mode: { url } of the edit server to use.',
+  languages: 'The languages this deck is translated into (BCP 47 tags: "fr", "pt-BR"); decklight translate writes each as talk.<lang>.html.',
+  translationOf: 'Written by decklight translate in a translation: the file it is a translation of. Nobody types it.',
 };

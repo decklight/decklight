@@ -101,6 +101,26 @@ export const NATIVE_ENGINES = ['say', 'sapi'];
 // Piper's defaults, shared with the setup wizard (tools/tts-setup.mjs) so the
 // model it checks for is the model createPiper will load.
 export const PIPER_DEFAULT_VOICE = 'en_US-ryan-high';
+
+/**
+ * Piper's voice for a language when none is named (SPEC TRANSLATION_VOICE):
+ * piper has one model per language, so the English default reads a French
+ * deck in English. One voice per language, each a key of piper's own catalog
+ * (rhasspy/piper-voices voices.json), high quality where there is one. A
+ * language not listed keeps the English default, which the bridge's startup
+ * line names, rather than a guessed name that would fail to download.
+ */
+export const PIPER_VOICES = {
+  en: PIPER_DEFAULT_VOICE, fr: 'fr_FR-siwis-medium', de: 'de_DE-thorsten-high', es: 'es_AR-daniela-high',
+  it: 'it_IT-serena-high', pt: 'pt_BR-cadu-medium', nl: 'nl_NL-alex-medium', pl: 'pl_PL-bass-high',
+  ru: 'ru_RU-denis-medium', zh: 'zh_CN-chaowen-medium', uk: 'uk_UA-mykyta-high', sv: 'sv_SE-alma-medium',
+  fi: 'fi_FI-harri-medium', tr: 'tr_TR-dfki-medium', cs: 'cs_CZ-jirka-medium', da: 'da_DK-talesyntese-medium',
+  no: 'no_NO-nvcc-medium', nb: 'no_NO-nvcc-medium', el: 'el_GR-joy-medium', hu: 'hu_HU-anna-medium',
+  ro: 'ro_RO-mihai-medium', vi: 'vi_VN-vais1000-medium', ar: 'ar_JO-kareem-medium', ca: 'ca_ES-upc_ona-medium',
+};
+
+/** The piper voice for `lang`: its own, else the English default. */
+export const piperVoiceFor = (lang) => PIPER_VOICES[primaryLang(lang) ?? 'en'] ?? PIPER_DEFAULT_VOICE;
 export const piperModelDir = (env = process.env) =>
   join(env.HOME || homedir(), '.local', 'share', 'piper');
 
@@ -513,7 +533,7 @@ function buildEngine({
   // `cost` is the human-facing price note — the bridge's startup line and the
   // setup wizard's test-synthesis report both quote it.
   if (engine === 'piper') {
-    const m = voice ?? PIPER_DEFAULT_VOICE;
+    const m = voice ?? piperVoiceFor(lang);
     return {
       name: 'piper', model: m, needsProject: false, stylable: false,
       // piper's synth takes only text: the model is loaded once and a
@@ -682,7 +702,7 @@ export function engineStatus(name, {
 
   if (name === 'piper') {
     if (!hasBin('piper', env)) return no('no-binary');
-    const v = voice ?? PIPER_DEFAULT_VOICE;
+    const v = voice ?? piperVoiceFor(lang);
     const models = dataDir ?? piperModelDir(env);
     if (!exists(piperModelPath(v, models))) return no('no-model', { voice: v, dataDir: models });
     return { name, ready: true, reason: 'ok' };

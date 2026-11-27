@@ -65,6 +65,7 @@ export const COMMANDS = {
   // command for what `voiceover` and `record` did (cli/narrate.mjs)
   narrate: { module: './narrate.mjs', main: 'narrateMain' },
   enhance: { module: './enhance.mjs', main: 'enhanceMain' },
+  translate: { module: './translate.mjs', main: 'translateMain' },
   comments: { module: './comments.mjs', main: 'commentsMain' },
   associate: { module: './associate.mjs', main: 'associateMain' },
   'report-bug': { module: './report-bug.mjs', main: 'reportBugMain' },
@@ -323,6 +324,10 @@ Commands:
   enhance  add ElevenLabs v4 audio tags ([thoughtful], [sighs]) to the voiceover script, with the
            prompt ElevenLabs publishes for it — your agent drafts, decklight checks no word changed
            EXAMPLE: decklight enhance talk.html --slides 3   (or --all; --dry-run to only look)
+  translate  the deck in another language beside it (talk.fr.html), made from it with its words
+           replaced by your agent, and a record of what each piece was translated from, so a
+           second run translates only what changed and keeps every correction you made
+           EXAMPLE: decklight translate talk.html --to fr   (--status: what is behind, no agent)
   comments what reviewers said, resolved against the deck as it is now — a comment
            whose slide moved is found anyway, and one whose slide is gone is still shown;
            a reviewer leaves them with M in a deck opened either way (--no-trust for one

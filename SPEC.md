@@ -21,7 +21,7 @@ being moved, and it says what it points at.
 | `TERMINAL_RECORDINGS` · `RECORDER_CLI` · `CAST_FORMAT` · `TERMINAL_PLAYER` · `ASCIICAST_INTEROP` | truthful terminals |
 | `PRESENTING` · `PRESENTING_NAVIGATION` · `PRESENTING_CHROME` · `PRESENTING_LOOK` · `PRESENTING_MODES` · `PRESENTING_EDITING` · `PRESENTING_WRITING` · `PRESENTING_VOICE` · `PRESENTING_BROWSER_VOICE` · `FACE_LAYOUT` · `PRESENTING_FIT` · `PRESENTING_OUTPUT` | moving through a deck, the presenter's chrome, themes, write and no-trust mode, editing, the writing tools, the voice, the browser's own voice when no bridge answers, keeping a slide on the slide, and print and export |
 | `REVIEW` | reviewer comments on a deck, anchored to slides and carried by git |
-| `TRANSLATIONS` · `TRANSLATION_UNITS` · `TRANSLATION_RECORD` · `TRANSLATE_CLI` · `TRANSLATE_PANEL` · `TRANSLATION_VOICE` · `TRANSLATION_SWITCH` | **draft, not built**: a deck in several languages, each a file generated from the source deck and a record of its translated text, with its own voice, captions and video |
+| `TRANSLATIONS` · `TRANSLATION_UNITS` · `TRANSLATION_RECORD` · `TRANSLATE_CLI` · `TRANSLATE_PANEL` · `TRANSLATION_VOICE` · `TRANSLATION_SWITCH` | a deck in several languages, each a file generated from the source deck and a record of its translated text, with its own voice, captions and video |
 | `JS_API` · `DECK_IMPORT` | the public API, and bringing a deck across |
 | `MARKETPLACE_REGISTRY` · `VOICE_UNITS` · `AGENT_UNITS` · `ENGINE_UNITS` · `ENGINE_PREREQUISITES` · `UNIT_COMPAT` · `UNIT_PINNING` · `UNIT_VERSIONS` · `EXTENSIONS_TRANSFORMS` · `EXTENSIONS_CHECK` · `EXTENSIONS_ADAPTERS` | **in [`PLATFORM.md`](PLATFORM.md)**: catalogs of themes, templates, skills and engines, registered not fetched; the unit library, its pins, gates and calling conventions; voices, agents and engines as units |
 | `DESIGN_SYSTEMS` · `BRAND_PALETTE` · `DESIGN_SYSTEM_ROLES` · `DESIGN_SYSTEM_MIGRATIONS` | a company's tokens, art and slide templates, published once and referenced by every deck built on it; its palette, and the themes drawn from it; its roles, which each theme sets; what each major version renamed, and the deck that took an older one |
@@ -1675,9 +1675,9 @@ a review comment is a **reviewer** writing to the author before one. Different a
 
 ## TRANSLATIONS · A deck in several languages
 
-> **Draft: this section is not built.** It is written ahead of the code so the design can be argued with
-> before it costs anything. What is already built of it lives in PRESENTING_VOICE and is marked *(built)*
-> under TRANSLATION_VOICE. The banner comes out when the section lands with its implementation.
+The code: `cli/translate-core.mjs` (units, record, matching, writing the translation), `cli/translate.mjs` (the
+command and the agent), `cli/translate-files.mjs` (where a language lives, and `decklight check`'s rules),
+`cli/edit-translate.mjs` and `src/core/languages.js` (Languages… and the switch).
 
 A talk given in English is asked for in French, and the usual answer is a copy: `talk-fr.html`, translated
 once, and wrong from the first edit to the original, with nothing to say which slides are wrong. A decklight
@@ -1692,8 +1692,10 @@ voiced, bundled and published like any other, with `<html lang="fr">`. `talk.fr.
 it was given. All three are committed. The language in the two names is a BCP 47 tag as the author wrote it
 (`fr`, `pt-BR`, `zh-Hans`). The source says which languages it has, `"languages": ["fr", "es"]` in its
 configuration block (DECK_ANATOMY), and a translation says what it is one of, `"translationOf": "talk.html"`,
-which decklight writes and nobody types. The source may be in any language: `<html lang>` on the source is
-what the translation is made *from*.
+which decklight writes and nobody types, with a `<link rel="alternate" hreflang>` in its `<head>` for every
+language of the deck, the source's included (TRANSLATION_SWITCH). The source may be in any language:
+`<html lang>` on the source is what the translation is made *from*, and a language written right to left gets
+`dir="rtl"` too.
 
 **The translation takes its structure from the source, always.** Every section, attribute, class, build,
 image, chart and diagram in `talk.fr.html` is the source's, re-read at every run; only the units below
@@ -1751,7 +1753,8 @@ does not guess whether an image has words in it.
       { "kind": "run",  "state": "machine",  "source": "Three things changed", "target": "Trois changements" },
       { "kind": "beat", "state": "machine",  "source": "We ship on Friday. [pause] Here is why.", "target": "Nous livrons vendredi. [pause] Voici pourquoi." }
     ]
-  ]
+  ],
+  "structure": ["3b6469b532c1"]
 }
 ```
 
@@ -1759,8 +1762,12 @@ One array per slide, in the translation's slide order, one unit per line so a re
 one-line diff. `source` is the text the unit was translated **from**, kept whole and not as a hash, because
 the two questions a hash cannot answer are the ones that matter: *what did it say when this was translated*,
 and *what should the model be shown as the previous version*. `target` is what decklight last wrote into the
-translation. `state` is `machine` (a model's answer, unread as far as decklight knows) or `reviewed` (a person
-wrote or changed it).
+translation. `state` is `machine` (a model's answer, unread as far as decklight knows), `reviewed` (a person
+wrote or changed it) or `pending`: a unit a run could not translate (no agent, or an answer that failed its
+check), whose `target` is what the translation shows meanwhile and which keeps, as `was`, the version it is to
+start from. `structure` is each slide's shape as written, the slide with its units' text taken out, hashed: a
+slide of the translation that no longer has its shape was changed in more than its words. The deck's own units
+(its title) are under `deck`.
 
 **Slides are matched by what they say.** A slide has no stable identity (REVIEW), and the record does not
 invent one. For each slide of the source, decklight looks for the record's slide holding the same units
@@ -1849,32 +1856,32 @@ it would be at a terminal, with the same matching, the same checks and the same 
 the source first, then one row per language in `languages`, each named in its own language with its tag
 (*Français · fr*). A row says one of three things: ✓ *up to date*; ↑ *behind*, with the count and the slides
 (*4 sentences behind on "Pricing" and "Roadmap"*, a slide named by its title as everywhere else); ○ *not
-translated yet*. Under it, how much a person has read (*212 of 240 reviewed*), any slide the last run left
-overflowing, and how many recorded takes the language's script has moved away from (PRESENTING_VOICE), since
-a re-translated beat is a take to record again and the panel is where that becomes true. The last row is
-**Add a language…**.
+translated yet*. Under it, how much a person has read (*212 of 240 reviewed*), and the corrections made in the
+file since the last run, which that run keeps; the slides the last run left overflowing (the record's
+`overflow`, kept until a run measures again); and the slides whose recorded takes the language's script has
+moved away from (its own tracks' manifests, read against its notes), since a re-translated beat is a take to
+record again and the panel is where that becomes true. The last row is **Add a language…**.
 
-**The keys.** **⏎** updates the selected language; **A** updates every language that is behind; **O** opens
-the selected language's deck at the slide you are on (`TRANSLATION_SWITCH`); **S** narrows the next run to
-the slide on screen. **Add a language…** takes a BCP 47 tag, typed or picked from a short list of common
-ones, shows how it will be named and which file it will write (`talk.de.html`), adds it to `languages` and
-starts its first run. Removing a language is not a key: it is deleting two files and one word of the
+**The keys.** **⏎** updates the selected language; **A** updates every language that is behind; **N** updates
+the selected one without the agent (`--no-agent`); **O** opens the selected language's deck at the slide you
+are on (`TRANSLATION_SWITCH`); **S** narrows the next run to the slide on screen. **Add a language…** takes a
+BCP 47 tag, shows its name and which file it will write (`talk.de.html`), and its first run adds it to
+`languages`. Removing a language is not a key: it is deleting two files and one word of the
 configuration, which git already does well and a panel would only make easy to do by accident.
 
-**Before a run starts the panel says what it will send and to whom**: the slides' text and notes, to the
-agent named (the one the writing tools use, PRESENTING_WRITING, changed in the same picker), with the number
-of slides that need a model and the number that will catch up without one. Most agents are cloud services,
-and a deck's words leaving the machine is a thing to be told once per run, not discovered. With no agent on
-the machine the panel offers the run that needs none (`--no-agent`: structure catches up, words stay
-behind) and says what is missing.
+**Before a run starts the panel says what it will send and to whom**: the slides' text and notes, to your
+coding agent (the one the writing tools use, PRESENTING_WRITING), with the number of pieces behind; a second ⏎
+starts it. Most agents are cloud services, and a deck's words leaving the machine is a thing to be told once
+per run, not discovered. A run with no agent on the machine ends saying so, and **N** is the run that needs
+none (structure catches up, words stay behind).
 
 **A run** is `POST /deck/edit/translate { to: [lang…], slides?: [n…], agent?: false }` (409 while another
-translate, a rewrite, a review or an agent edit runs; 400 naming what is missing with no agent and none
-declined; 404 for a language not in `languages`). Progress rides SSE `translate` events into the language's
-own row (*slide 7 of 12 · checking fit*), three slides at a time, and **Esc** on a running row stops it after
-the slides in flight: what was answered and passed is written, the rest stays behind and is counted. The
-closing line is the command's report (*French: 4 sentences updated · slide 5 left as it was: a `[pause]` was
-dropped · slide 9 still overflows*), and a slide named in it is a link that opens that language there.
+translate runs; 400 for a language that is not a tag), started as the command in a child process. Its lines
+ride SSE `translate` events into the language's own row (`start`, `line`, `done`), three slides at a time,
+and **Esc** while it runs stops it after the slides in flight (`POST /deck/edit/translate/stop`, which the
+command reads on its input): what was answered and passed is written, the rest stays behind and is counted.
+The closing toast is the command's report (*French (talk.fr.html): 4 pieces translated · slide 5 left as it
+was: piece 2 lost or changed a bracketed direction such as [pause]*).
 
 **The answers are written, not held.** A rewrite of the open deck is held for review because it changes the
 file in front of the author (PRESENTING_WRITING). A translation is another file: the open deck is not
@@ -1882,22 +1889,26 @@ touched, the run is one commit's worth of change in `talk.fr.html` and its recor
 which of it is unread is the record's `state`, kept for exactly this. Undo is git's, and the panel does not
 pretend to another.
 
-**Reading a translation is done in the translation.** Open in write mode, a deck with `translationOf` marks
-each `machine` unit on the slide (a quiet rule beside the text, never in a render, a bundle or in front of
-an audience), and the panel opened there lists the slides with unread units, in order. Editing a unit makes
-it `reviewed`, as the record already says; **R** on a slide marks what is on it `reviewed` without changing
-it (`POST /deck/edit/translation/reviewed { slide }`), because agreeing with a sentence is also reading it.
-The source's sentence is shown beside the one selected, from the record, so nobody needs two windows to
-check a translation.
+**Reading a translation is done in the translation.** The panel opened on a translation lists the slides with
+unread (`machine`) units, in order, and shows the slide on screen piece by piece, each source sentence beside
+its translation from the record (`GET /deck/edit/translation/slide?slide=n`), the unread ones marked, so
+nobody needs two windows to check a translation; it follows the slide as you move. On the slide itself, each
+unread piece of its text is marked where it stands (a dotted rule under it, `.decklight-unread`), in write mode
+only: a render, a bundle and an audience have no edit server to ask. Editing a unit makes it `reviewed`, as the
+record already says; **R** marks what is on the slide `reviewed` without changing it
+(`POST /deck/edit/translation/reviewed { slide }`), because agreeing with a sentence is also reading it.
 
 **The source tells you when it has left a language behind, and does nothing about it.** Saving an edit to
-the source that puts a language behind posts one message (*French and Spanish are now 2 sentences behind ·
-Languages…*, PRESENTING), once per language until it is caught up, and the palette gains **Language: Update
+the source that puts a language behind posts one message (*French and Spanish are now 2 pieces behind · / →
+Languages…*, a `translate` event of state `behind`), once per language until it is caught up, and the palette gains **Language: Update
 translations** while any is behind. Nothing is translated on save: a run costs an agent and sends the deck's
 words out, and neither happens because somebody fixed a typo.
 
-**Where the tools that change structure are refused** on a translation (`TRANSLATIONS`), the refusal names
-the source file and offers to open it at the same slide, which is the same slide.
+**Where the tools that change structure are refused** on a translation (`TRANSLATIONS`), the edit server
+answers 409 before the route runs (`STRUCTURAL_ROUTES`, cli/edit-translate.mjs: slide, element, look and
+configuration edits; the text and notes editors, find and replace and the writing tools stay open). The
+refusal names the source file, and is said on the page however the write was sent (a `translate` event of
+state `refused`), with one button, **Open talk.html**, that opens the source at the same slide.
 
 ### TRANSLATION_VOICE · Voice, captions and video per language
 
@@ -1905,41 +1916,50 @@ A translation is a deck, so everything in PRESENTING_VOICE applies to it unchang
 its captions are its notes, and a take is stale when the beat it was voiced from changes, which a
 re-translated beat does. What a second language in the same folder needs:
 
-- **A take belongs to a language** *(built, PRESENTING_VOICE)*. A track's language is its folder's
+- **A take belongs to a language** (PRESENTING_VOICE). A track's language is its folder's
   (`voices-fr/anna`), else the `lang` in its manifest, and a deck lists, checks, renumbers and gives a face to
   the tracks in its own language only; a track that says no language is the source's. A translation's tracks
   are written to `voices-<lang>/<voice>` beside the source's `voices/<voice>` (`voices-fr/me` for your own
   voice in French), so two languages recorded in the same voice never share a folder.
-- **A deck and its translations count as one deck** *(built)* for the rule that lets a recording follow its
+- **A deck and its translations count as one deck** for the rule that lets a recording follow its
   slide when slides move (PRESENTING_VOICE): adding `talk.fr.html` beside `talk.html` does not switch it
-  off. *Not built:* a slide moved in the source moves each language's takes at the run that moves the slide.
-- **The engine is told the language** *(built)*. The deck's `<html lang>` goes with every synthesis to an
+  off, and a slide moved in the source moves each language's takes at the `decklight translate` run that
+  moves the slide in that language (read off the translation's sections before and after, as an agent's edit
+  is).
+- **The engine is told the language**. The deck's `<html lang>` goes with every synthesis to an
   engine that takes one and is in the cache key, so a sentence spelled alike in two languages is not served
-  one language's clip in the other. *Not built:* picking the default voice of an engine that has one per
-  language.
-- **Captions are cut for the language**: sentence ends and closing quotation marks follow the deck's language
-  *(built)*, and so do line lengths *(not built)*. **Lip-sync** uses the recogniser that does not assume
-  English for any other language *(built)*.
+  one language's clip in the other. An engine with one voice per language picks the language's own when none
+  is named: piper reads a French deck with `fr_FR-siwis-medium`, not the English default (`PIPER_VOICES`,
+  tools/tts-engines.mjs, each a key of piper's catalog; a language it does not list keeps the default).
+- **Captions are cut for the language**: sentence ends and closing quotation marks follow the deck's language,
+  and so does a video's cue length: two lines of 42 for a language written in words, of 13 for Japanese and
+  16 for Chinese and Korean, cut by character where there are no spaces (`cueMaxChars`, tools/video.mjs).
+  **Lip-sync** uses the recogniser that does not assume English for any other language.
 - **One video per language**: `decklight video talk.fr.html` writes `talk.fr.mp4` and its captions as
-  `talk.fr.vtt`, the language tagged in both.
+  `talk.fr.vtt`, the language tagged in both (the audio and subtitle streams' ISO 639-2 tag, and a
+  `Language:` line in the WebVTT header).
 - **A video voiced by an AI voice says so in its metadata**, by default and in any language, source deck
   included: the file's comment tag names the engine and that the voice is synthetic. `--disclose` adds a
-  visible line at the start, in the deck's language; `--no-disclose` writes neither. A take in your own
-  voice (`voices/me`, `voices-<lang>/me`) carries nothing.
+  visible line along the bottom of the first slide, in the deck's language; `--no-disclose` writes neither.
+  A take in your own voice (`voices/me`, `voices-<lang>/me`) carries nothing. A `--render live` video gets
+  both, through the same last ffmpeg pass.
 - **Pronunciation is fixed by rewording**, as in any deck: the notes are also the captions, so they are never
   respelled for the voice.
 
 ### TRANSLATION_SWITCH · Changing language while presenting
 
 A deck with `languages`, and each of its translations, shows **Language** rows in the `/` palette: the
-source's language and each translation's, each named in its own language. Choosing one opens that file at the same slide and step, which is the same place because
+source's language and each translation's, each named in its own language. The source's rows come from its
+`languages` and its own name (`talk.html` → `talk.fr.html`); a translation's from its `<link rel="alternate"
+hreflang>`, which every run of `decklight translate` keeps current in every translation. Choosing one opens that file at the same slide and step, which is the same place because
 the structure is the same. It is a link to a sibling file: nothing is fetched, merged or translated in the
 page, and no-trust mode needs no new permission for it (PRESENTING_MODES). A translation that is behind says
 so beside its name in write mode and nowhere else, and write mode adds the rows that open the panel
 (`TRANSLATE_PANEL`). **A bundled or published file travels alone unless asked otherwise.** `bundle` and `publish` take
 `--languages all|fr,es`: each language named is written as its own self-contained file beside the output
-(`out.html`, `out.fr.html`), and the switch in each links the others. Without the option the file is one
-language and shows no switch, since a link to a file that did not travel is a dead row.
+(`out.html`, `out.fr.html`; `index.fr.html` beside `index.html` for `publish`), and the switch in each links
+the others. Without the option the file is one language and shows no switch, since a link to a file that did
+not travel is a dead row.
 
 **What this is not.** Not translation at presentation time: no model, no network call and no browser
 translation runs in front of an audience. Not one file holding every language: a language is a deck, with its
@@ -1948,9 +1968,10 @@ and voice. Not an interchange format: the record is decklight's own, and XLIFF o
 whoever needs to send a deck to an agency. Not live interpretation of a speaker.
 
 **Decided, and deferred.** Structure is the source's with no per-language exception: no swapped image, no
-slide for one market. The first deck that needs one is the argument for designing it. Right-to-left and
-CJK are not in the first version: `dir` is written, but no theme has been verified right to left, and
-caption line breaking for a language written without spaces needs a segmenter this section does not name.
+slide for one market. The first deck that needs one is the argument for designing it. Right-to-left is
+written (`dir="rtl"`) but no theme has been verified right to left, and a caption in a language written
+without spaces is cut by character, not at a word: a segmenter that knows where its words end is not named
+here.
 
 ## JS_API · Public JS API
 

@@ -340,6 +340,24 @@ function withDeckConfigText(html, edit) {
   return null;
 }
 
+/**
+ * `html` with each top-level configuration key in `set` written (a JSON
+ * value) or taken off (null), in the block or the init literal, spliced in
+ * place. Null when the deck carries its configuration in neither way. For
+ * keys Deck settings… does not own (`languages`, `translationOf`: SPEC
+ * TRANSLATIONS), so there is no rule here about what each takes.
+ */
+export function withConfigKeys(html, set) {
+  return withDeckConfigText(html, (text) => {
+    let next = text;
+    for (const [key, value] of Object.entries(set)) {
+      next = withObjectKey(next, key, value === null || value === undefined ? null : JSON.stringify(value));
+      if (next === null) return null;
+    }
+    return next;
+  });
+}
+
 /** The value text of top-level `key` in an object literal's `text` (from after its colon), or null. */
 function valueTextOf(text, key) {
   const span = keySpan(text, key);

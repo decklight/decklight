@@ -79,7 +79,7 @@ if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
 Usage:
   decklight publish <deck.html> [--branch gh-pages] [--remote origin]
                                 [--no-bundle] [--no-sign] [--deck] [--path <subdir>]
-                                [--theme <name>] [--audio [original|aac|opus]]
+                                [--theme <name>] [--audio [original|aac|opus]] [--languages all|fr,es]
                                 [--target gh-pages|netlify|vercel|folder]
 
 Options:
@@ -93,6 +93,9 @@ Options:
                     page, as \`bundle --audio\` does: original (the default), aac
                     (plays everywhere) or opus (the smallest). Without it the
                     clips stay beside the deck and the page plays no voice
+  --languages <sel> publish the deck's translations beside it (decklight
+                    translate): all, or fr,es — each a page of its own,
+                    index.fr.html beside index.html, switching to the others
   --deck            also publish index.decklight — the signed container, which
                     is the file a visitor downloads and forwards
   --path <subdir>   publish under a subdirectory of the site (other content
@@ -120,7 +123,7 @@ orphan; later publishes append to its history.
 }
 
 let deck = null, branch = 'gh-pages', remote = 'origin', bundle = true, subdir = '', sign = true, deckFile = false,
-  target = 'gh-pages', branchGiven = false, remoteGiven = false, theme = null, audio = null;
+  target = 'gh-pages', branchGiven = false, remoteGiven = false, theme = null, audio = null, languages = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--branch') { branch = argv[++i]; branchGiven = true; }
@@ -129,6 +132,8 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--no-sign') sign = false;
   else if (a === '--deck') deckFile = true;
   else if (a === '--theme') theme = argv[++i];
+  // each language beside index.html as index.<lang>.html (TRANSLATION_SWITCH)
+  else if (a === '--languages') languages = argv[++i];
   // `--audio` alone carries the files as recorded; a codec after it re-encodes
   // them (bundle's own choices, read from the same list)
   else if (a === '--audio') audio = AUDIO_CHOICES.includes(argv[i + 1]) ? argv[++i] : 'original';
@@ -206,8 +211,10 @@ if (bundle) {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'decklight-publish-'));
   sitePage = path.join(tmpDir, 'index.html');
   const { bundleMain } = await import('./bundle.mjs');
-  await bundleMain([deckPath, '-o', sitePage, ...(theme ? ['--theme', theme] : []), ...(audio ? ['--audio', audio] : [])]);
+  await bundleMain([deckPath, '-o', sitePage, ...(theme ? ['--theme', theme] : []), ...(audio ? ['--audio', audio] : []), ...(languages ? ['--languages', languages] : [])]);
 }
+// the languages bundled beside the page, published beside it
+const languagePages = tmpDir ? fs.readdirSync(tmpDir).filter((n) => /^index\.[a-z]{2,3}(?:-[a-z0-9]{2,8})*\.html$/i.test(n)) : [];
 
 // --------------------------------------------------------------- plumbing
 
@@ -251,8 +258,10 @@ if (target !== 'gh-pages') {
   // tree, no history, and nothing else on the site to preserve or diff
   // against — the files below are simply what gets sent, in full, every time.
   const pageBytes = fs.readFileSync(sitePage);
+  const languageBytes = new Map(languagePages.map((n) => [n, fs.readFileSync(path.join(tmpDir, n))]));
   if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
   const files = [{ path: [...parts, 'index.html'].join('/'), data: pageBytes }];
+  for (const n of languagePages) files.push({ path: [...parts, n].join('/'), data: languageBytes.get(n) });
   if (signature) files.push({ path: [...parts, 'index.html.sig'].join('/'), data: `${JSON.stringify(signature, null, 2)}\n` });
   if (deckBytes) files.push({ path: [...parts, 'index.decklight'].join('/'), data: deckBytes });
 
@@ -267,6 +276,7 @@ if (target !== 'gh-pages') {
 // Objects land in the repo's database; nothing references them until the
 // push, and neither the working tree nor the index ever hears about it.
 const pageBlob = git(['hash-object', '-w', '--', sitePage]);
+const languageBlobs = languagePages.map((n) => [n, git(['hash-object', '-w', '--', path.join(tmpDir, n)])]);
 const nojekyllBlob = git(['hash-object', '-w', '--stdin'], '');
 const sigBlob = signature ? git(['hash-object', '-w', '--stdin'], `${JSON.stringify(signature, null, 2)}\n`) : null;
 const deckBlob = deckBytes
@@ -286,6 +296,7 @@ const put = (treeish, parts_, blob) => putBlob(git, treeish, parts_, blob);
 
 let tree = put(parent, ['.nojekyll'], nojekyllBlob);
 tree = put(tree, [...parts, 'index.html'], pageBlob);
+for (const [n, blob] of languageBlobs) tree = put(tree, [...parts, n], blob);
 // Beside the page it covers, under the name a verifier will look for.
 if (sigBlob) tree = put(tree, [...parts, 'index.html.sig'], sigBlob);
 if (deckBlob) tree = put(tree, [...parts, 'index.decklight'], deckBlob);

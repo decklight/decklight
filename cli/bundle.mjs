@@ -211,7 +211,62 @@ function mergeDecks(jobs, baseDir, notices) {
  * written: where it went and the notes printed after it, for a caller (the edit
  * server's bundle card) that says them somewhere other than this terminal.
  */
-export async function bundleMain(argv = process.argv.slice(2), { client, estimate = false, report = null } = {}) {
+/**
+ * `--languages all|fr,es` (SPEC TRANSLATION_SWITCH): the deck and each of its
+ * languages, every one bundled as a self-contained file of its own beside the
+ * output (`out.html`, `out.fr.html`), each switch linking the others by
+ * their new names. Every other option applies to each file alike.
+ */
+async function bundleLanguages(argv, at, opts) {
+  const { knownLanguages, languageFiles } = await import('./translate-files.mjs');
+  const { withAlternates } = await import('./translate-core.mjs');
+  const { withConfigKeys } = await import('./runtime-link.mjs');
+  const { deckLang } = await import('../tools/deck-html.mjs');
+  const spec = argv[at + 1];
+  if (!spec || spec.startsWith('-')) fail('--languages takes all, or the languages to carry: --languages fr,es');
+  const rest = [...argv.slice(0, at), ...argv.slice(at + 2)];
+  const valueFlags = new Set(['-o', '--themes', '--theme', '--transform', '--title', '--module']);
+  const inputs = rest.filter((a, i) => !a.startsWith('-') && !valueFlags.has(rest[i - 1]) && !(rest[i - 1] === '--audio' && AUDIO_CHOICES.includes(a)));
+  if (inputs.length !== 1 || rest.includes('--all')) fail('--languages bundles one deck and its languages: give the source deck alone');
+  const source = path.resolve(inputs[0]);
+  if (!fs.existsSync(source)) fail(`deck not found: ${source}`);
+  const sourceHtml = fs.readFileSync(source, 'utf8');
+  const known = knownLanguages(source, sourceHtml).filter((l) => fs.existsSync(languageFiles(source, l).deck));
+  const langs = spec === 'all' ? known : spec.split(',').map((s) => s.trim()).filter(Boolean);
+  for (const l of langs) if (!fs.existsSync(languageFiles(source, l).deck)) fail(`no ${path.basename(languageFiles(source, l).deck)} beside ${path.basename(source)} — decklight translate ${path.basename(source)} --to ${l}`);
+  if (!langs.length) fail(`${path.basename(source)} has no translations to carry — decklight translate ${path.basename(source)} --to fr`);
+  const oi = rest.indexOf('-o');
+  const out = path.resolve(oi >= 0 ? rest[oi + 1] : path.join(path.dirname(source), `${path.basename(source, '.html')}-standalone.html`));
+  const outFor = (l) => out.replace(/(\.html?)?$/i, (ext) => `.${l}${ext || '.html'}`);
+  const withOut = (file, o) => { const r = rest.map((a) => (path.resolve(a) === source ? file : a)); const j = r.indexOf('-o'); if (j >= 0) r.splice(j, 2); return [...r, '-o', o]; };
+  const from = deckLang(sourceHtml);
+  const alternates = [...(from ? [{ lang: from, href: path.basename(out) }] : []), ...langs.map((l) => ({ lang: l, href: path.basename(outFor(l)) }))];
+  const written = [out];
+  await bundleMain(withOut(source, out), { ...opts, finalize: (html) => withAlternates(withConfigKeys(html, { languages: langs, translationOf: null }) ?? html, []) });
+  for (const l of langs) {
+    await bundleMain(withOut(languageFiles(source, l).deck, outFor(l)), {
+      ...opts, finalize: (html) => withAlternates(withConfigKeys(html, { languages: null, translationOf: path.basename(out) }) ?? html, alternates),
+    });
+    written.push(outFor(l));
+  }
+  process.stdout.write(`languages: ${[from, ...langs].filter(Boolean).join(', ')} — ${written.map((w) => path.basename(w)).join(', ')}, each self-contained, each switching to the others\n`);
+  if (opts.report) Object.assign(opts.report, { languages: written });
+  return 0;
+}
+
+/** A file that travels alone shows no language switch: a link to a file that did not travel is a dead row. */
+async function oneLanguage(html) {
+  if (!/"languages"\s*:|"translationOf"\s*:|data-decklight-lang/.test(html)) return html;
+  const { withAlternates } = await import('./translate-core.mjs');
+  const { withConfigKeys } = await import('./runtime-link.mjs');
+  return withAlternates(withConfigKeys(html, { languages: null, translationOf: null }) ?? html, []);
+}
+
+export async function bundleMain(argv = process.argv.slice(2), { client, estimate = false, report = null, finalize = null } = {}) {
+{
+  const at = argv.indexOf('--languages');
+  if (at >= 0) return bundleLanguages(argv, at, { client, estimate, report });
+}
 
 if (!argv.length || argv.includes('--help') || argv.includes('-h')) {
   process.stdout.write(`decklight bundle — flatten deck(s) into one self-contained HTML file
@@ -223,6 +278,11 @@ Usage:
   decklight bundle <a.html> <b.html> … [-o out.html] [--title "…"] [--themes …]
 
 Options:
+  --languages <all|fr,es>
+                   carry the deck's translations too (decklight translate):
+                   each as a self-contained file of its own beside the output
+                   (out.html, out.fr.html), its language switch linking the
+                   others. Without it the file is one language and shows no switch
   -o <file>        output path (default: <deck>-standalone.html, or
                    <deck>-course.html when merging)
   --all            follow the deck's playlist and merge EVERY module into
@@ -873,6 +933,8 @@ if (!jobs) {
 // though it were finished. Bytes, not a path, for exactly this reason.
 // An estimate (the edit server's bundle card) stops here: the file as it
 // would be without its audio, and what each way of carrying the audio adds.
+// its languages: the ones that travel with it, or none (TRANSLATION_SWITCH)
+html = finalize ? finalize(html) : await oneLanguage(html);
 if (estimate) return { base: Buffer.byteLength(html, 'utf8'), audio: audioEstimate };
 
 let bundleSig = null;
