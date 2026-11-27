@@ -47,7 +47,9 @@ test('exact character capture loads the deck once per beat regardless of mouth c
   for (const step of [0, 1]) {
     await captureMotion(page, { url, slide: 1, to: step, count: 4, fps: 10, poses, frameAt: (i) => frames.push(i) });
   }
-  assert.deepEqual(navigations.filter((nav) => nav !== 'about:blank'), [url + '#/1/0', url + '#/1/1']);
+  assert.deepEqual(navigations.filter((nav) => nav !== 'about:blank'), [
+    'http://localhost/deck.html?capture=&motion=#/1/0', 'http://localhost/deck.html?capture=&motion=#/1/1',
+  ]);
   assert.deepEqual(shapes, ['A', 'B', 'C', 'X', 'A', 'B', 'C', 'X']);
   assert.deepEqual(frames, [0, 1, 2, 3, 0, 1, 2, 3]);
 });

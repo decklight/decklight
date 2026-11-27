@@ -5421,3 +5421,32 @@ html.dl-placing-stop .decklight-stage, html.dl-placing-stop .decklight-stage * {
    has read yet, marked where it stands; the panel's R marks the slide read */
 .decklight .decklight-unread { text-decoration: underline dotted rgba(255, 190, 90, .85); text-decoration-thickness: 2px; text-underline-offset: .18em; }
 .decklight-languages .mk-warn-line { color: #ffcf8b; }
+/* LETTER_BY_LETTER: the visual glyphs are CSS content so the only text node
+   is the original sentence. Its accessible copy stays in the reading order. */
+.decklight .dl-write-source {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.decklight .dl-write-visual { pointer-events: none; }
+.decklight .dl-write-word { display: inline-block; white-space: nowrap; }
+.decklight :is(.dl-write-letter, .dl-write-gap)::before { content: attr(data-dl-write-glyph); }
+.decklight .dl-write-letter {
+  animation: dl-write-show 0s calc(var(--dl-write-index) * var(--dl-write-step, var(--cf-write-step, 45ms))) both;
+}
+.decklight .dl-write-out {
+  animation: dl-write-fade var(--dl-write-fade, var(--cf-write-out, 350ms)) linear
+    calc(var(--dl-write-length) * var(--dl-write-step, var(--cf-write-step, 45ms)) + var(--dl-write-hold, var(--cf-write-hold, 900ms))) both;
+}
+.decklight .dl-write-follows { animation: dl-write-show 0s var(--dl-write-start, 0ms) both; }
+@keyframes dl-write-show { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dl-write-fade { from { opacity: 1; } to { opacity: 0; } }
+.decklight.decklight-write-frame :is(.dl-write-letter, .dl-write-out, .dl-write-follows) { animation-play-state: paused; }
+.decklight .ov-clone :is(.dl-write-letter, .dl-write-out, .dl-write-follows) { animation: none; }
+@media (prefers-reduced-motion: reduce), print {
+  .decklight :is(.dl-write-letter, .dl-write-out, .dl-write-follows) { animation: none; }
+}

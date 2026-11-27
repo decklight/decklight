@@ -27,6 +27,7 @@ import {
 import { slideClickMatch } from './narration.js';
 import { clickMismatchText } from '../../tools/click-match.mjs';
 import { placeUnordered, orderGroups } from './buildlist.js';
+import { writesPlainText } from './letter-writing.js';
 
 const isList = (n) => n?.nodeType === 1 && (n.tagName === 'UL' || n.tagName === 'OL');
 const isCell = (n) => n?.nodeType === 1 && (n.tagName === 'TD' || n.tagName === 'TH');
@@ -311,7 +312,8 @@ export function createListSessions(ctx) {
         if (s.kind === 'list') lockSubs(old, false);
       }
       cur.el = el;
-      el.setAttribute('contenteditable', 'true');
+      cur.writing = writesPlainText(el);
+      el.setAttribute('contenteditable', cur.writing ? 'plaintext-only' : 'true');
       el.classList.add('dl-editing');
       if (s.kind === 'list') lockSubs(el, true);
       el.focus();

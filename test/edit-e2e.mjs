@@ -35,6 +35,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findChrome } from '../tools/chrome.mjs';
 import { nextFreePort } from '../cli/port-conflict.mjs';
+import { captureMotion } from '../tools/video.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -73,6 +74,17 @@ ${slides}
 </html>
 `;
 const FIXTURES = {
+  writing: deckOf(`    <section>
+      <h2 data-write="out" style="--dl-write-step: 100ms; --dl-write-hold: 100ms; --dl-write-fade: 100ms">Go now</h2>
+      <p data-write-after>Then speak</p>
+    </section>
+    <section data-template="example/divider">
+      <h2 data-slot="title">Café noir</h2>
+      <p data-slot="title" data-write="off">Plain words</p>
+    </section>`).replace('</head>', `<script type="application/json" data-design-system-meta="example">{"version":"1"}</script>
+    <template data-design-system-templates="example">
+      <template data-template="divider"><div data-slot="title" data-write></div></template>
+    </template></head>`),
   // bullets the author wrote with <b>, a list that builds, and a title
   text: deckOf(`    <section>
       <h2>Why the queue</h2>
@@ -235,6 +247,65 @@ async function scenario(name, fn) {
 }
 
 try {
+  await scenario('writing', async () => {
+    const srv = await serve('writing');
+    const page = await open(srv, '#/1/0');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    const heading = page.locator(`${ACTIVE} h2`);
+    check('writing', 'the preview has characters and reads like the source', await heading.textContent() === 'Go now'
+      && await heading.locator('.dl-write-letter').count() === 5);
+    await heading.dblclick();
+    const typing = await heading.evaluate((el) => el.isContentEditable && el.innerHTML === 'Go now');
+    check('writing', 'write mode puts the whole plain sentence under the caret', typing);
+    await page.keyboard.press(`${MOD}+a`);
+    await page.keyboard.insertText('Go later');
+    await page.keyboard.press('Enter');
+    await page.waitForFunction(() => {
+      const h = document.querySelector('.decklight-stage > section.active h2');
+      return h?.textContent === 'Go later' && h.querySelectorAll('.dl-write-letter').length === 7;
+    });
+    check('writing', 'the effect replays and the saved title contains only plain text',
+      /data-write="out"[^>]*>Go later<\/h2>/.test(srv.read()) && !/dl-write-(?:letter|source|visual)/.test(srv.read()));
+    await page.close();
+
+    const movie = await browser.newPage({ viewport: { width: 960, height: 600 }, reducedMotion: 'no-preference' });
+    const frames = [];
+    let firstFrame, writtenFrame;
+    await captureMotion({ navigate: (url) => movie.goto(url), evaluate: (js) => movie.evaluate(js), screenshot: () => movie.screenshot() }, {
+      url: srv.url + '?capture', slide: 1, to: 0, count: 12, fps: 10,
+      frameAt: async (index, png) => {
+        if (index === 0) firstFrame = png;
+        if (index === 7) writtenFrame = png;
+        frames.push(await movie.evaluate(() => {
+          const select = (s) => document.querySelector(s);
+          return {
+            visible: [...document.querySelectorAll('h2 .dl-write-letter')].filter((l) => getComputedStyle(l).opacity === '1').length,
+            fade: Number(getComputedStyle(select('h2 .dl-write-visual')).opacity),
+            follow: Number(getComputedStyle(select('[data-write-after]')).opacity),
+          };
+        }));
+      },
+    });
+    check('writing', 'Exact frames reveal letters, hold, and fade on the frame clock',
+      frames[0]?.visible === 1 && frames[2]?.visible === 2 && frames[4]?.visible === 4
+      && frames[7]?.visible === 7 && frames[7]?.fade === 1 && frames[10]?.fade === 0 && !firstFrame.equals(writtenFrame),
+      JSON.stringify(frames));
+    check('writing', 'the follower waits for the last character', frames[6]?.follow === 0 && frames[7]?.follow === 1,
+      JSON.stringify(frames));
+    await movie.goto(srv.url + '?capture=live#/2/0');
+    const slot = await movie.locator(`${ACTIVE} h2`).evaluate((el) => ({
+      text: el.textContent, visibleTree: el.querySelector('.dl-write-visual')?.getAttribute('aria-hidden'),
+      accent: [...el.querySelectorAll('.dl-write-letter')].some((c) => c.getAttribute('data-dl-write-glyph') === 'é'),
+      plain: !el.parentElement.querySelector('[data-write="off"] .dl-write-letter'),
+    }));
+    check('writing', 'a template default is inherited, opt-out works, and a grapheme stays whole', slot.text === 'Café noir'
+      && slot.visibleTree === 'true' && slot.accent && slot.plain, JSON.stringify(slot));
+    await movie.goto(srv.url + '?capture#/1/0');
+    check('writing', 'a still shows the full sentence without the fade', await movie.locator(`${ACTIVE} h2`)
+      .evaluate((h) => h.innerHTML === 'Go later' && getComputedStyle(h).opacity === '1'));
+    await movie.close();
+  });
+
   const text = await serve('text');
   const diagram = await serve('diagram');
 

@@ -10,8 +10,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
-  deckUnits, emptyRecord, matchRecord, readBack, renderTranslation, nextRecord, languageStatus, slideUnits, isRtl,
+  deckUnits, emptyRecord, matchRecord, readBack, renderTranslation, nextRecord, languageStatus, slideShape, slideUnits, isRtl,
 } from '../cli/translate-core.mjs';
 import { translateMain, translateProblem, translatePrompt, tagProblem, knownLanguages } from '../cli/translate.mjs';
 
@@ -133,6 +135,82 @@ test('a second run asks for nothing that did not change, and a slide moved in th
   assert.equal(third.asked.length, 0, 'moved, not reworded');
   const fr = readFileSync(join(dir, 'talk.fr.html'), 'utf8');
   assert.ok(fr.indexOf('FR:Context') < fr.indexOf('FR:Plan'), 'the translation follows the source\'s order');
+});
+
+function legacyTitle(words, label = words) {
+  let i = 0;
+  const spans = words.split(' ').map((word) => {
+    const letters = [...word].map((c) => `<span class="cf-ch" style="--i:${i++}">${c}</span>`).join('');
+    i++;
+    return `<span class="cf-w" aria-hidden="true">${letters}</span>`;
+  });
+  return `<h2 class="headline cf-write cf-write-out" data-slot="title" style="color:inherit; --n:${i - 1}" aria-label="${label}">${spans.join(' ')}</h2>`;
+}
+
+test('a plain animated title is translated as one run, even when its length and word count change', async (t) => {
+  const dir = folder(t, DECK.replace('<h2>Ship on Friday</h2>', '<h2 data-write>The problem</h2>'));
+  const target = 'Un vrai problème';
+  const agent = stubAgent({ answer: (text) => text === 'The problem' ? target : `FR:${text}` });
+  const first = await run(dir, ['--to', 'fr'], agent);
+  assert.equal(first.code, 0, first.err);
+  assert.match(first.out, /on "The problem"/);
+  const deck = join(dir, 'talk.fr.html');
+  const file = join(dir, 'talk.fr.translation.json');
+  const fr = readFileSync(deck, 'utf8');
+  const rec = readFileSync(file, 'utf8');
+  assert.match(fr, /<h2 data-write>Un vrai problème<\/h2>/);
+  assert.deepEqual(JSON.parse(rec).slides[0].slice(0, 1), [
+    { kind: 'run', state: 'machine', source: 'The problem', target },
+  ]);
+  assert.deepEqual(translationFindings(deck, fr, { finding }), []);
+  const again = stubAgent();
+  assert.equal((await run(dir, [], again)).code, 0);
+  assert.deepEqual(again.asked, []);
+  assert.equal(readFileSync(deck, 'utf8'), fr);
+  assert.equal(readFileSync(file, 'utf8'), rec);
+});
+
+test('check --fix migrates a scrambled title and its old letter pairs alongside the source deck', async (t) => {
+  const dir = folder(t);
+  writeFileSync(join(dir, 'a.png'), '');
+  await run(dir, ['--to', 'fr']);
+  const deck = join(dir, 'talk.fr.html');
+  const file = join(dir, 'talk.fr.translation.json');
+  const srcPath = join(dir, 'talk.html');
+  const src = readFileSync(srcPath, 'utf8').replace('<h2>Ship on Friday</h2>', legacyTitle('The problem'));
+  writeFileSync(srcPath, src);
+  const broken = legacyTitle('Lep roblème', 'Le problème').replace('>L</span>', '>Le</span>');
+  const fr = readFileSync(deck, 'utf8').replace('<h2>FR:Ship on Friday</h2>', broken);
+  writeFileSync(deck, fr);
+  const sourceUnits = deckUnits(src).slides[0];
+  const frenchUnits = deckUnits(fr).slides[0];
+  const record = JSON.parse(readFileSync(file, 'utf8'));
+  record.slides[0] = sourceUnits.map((u, i) => ({
+    kind: u.kind, state: u.text === 'The problem' ? 'reviewed' : 'machine', source: u.text, target: frenchUnits[i].text,
+  }));
+  record.structure[0] = slideShape(fr.split('<section')[1]);
+  writeFileSync(file, JSON.stringify(record));
+  const check = (path, ...args) => spawnSync(process.execPath, [fileURLToPath(new URL('../cli/check.mjs', import.meta.url)),
+    path, '--no-render', '--json', ...args], { encoding: 'utf8' });
+  const before = check(deck);
+  assert.ok(JSON.parse(before.stdout).some((f) => f.rule === 'legacy-write' && f.title === 'Le problème'));
+  const fixed = check(deck, '--fix');
+  assert.equal(fixed.status, 0, fixed.stderr + fixed.stdout);
+  assert.match(fixed.stderr, /converted 2 split-letter titles/);
+  assert.match(readFileSync(srcPath, 'utf8'), /<h2 class="headline" data-slot="title" style="color:inherit" data-write="out">The problem<\/h2>/);
+  const converted = readFileSync(deck, 'utf8');
+  assert.match(converted, /data-write="out">Le problème<\/h2>/);
+  assert.match(converted, /FR:Three &amp; things/);
+  const migrated = JSON.parse(readFileSync(file, 'utf8'));
+  assert.deepEqual(migrated.slides[0][0], { kind: 'run', state: 'reviewed', source: 'The problem', target: 'Le problème' });
+  assert.deepEqual(migrated.slides[1], record.slides[1]);
+  assert.equal(migrated.structure[0], slideShape(converted.split('<section')[1]));
+  assert.deepEqual(translationFindings(deck, converted, { finding }), []);
+  const again = stubAgent();
+  assert.equal((await run(dir, [], again)).code, 0);
+  assert.deepEqual(again.asked, []);
+  assert.equal(readFileSync(deck, 'utf8'), converted);
+  assert.doesNotMatch(check(srcPath, '--fix').stderr, /converted/);
 });
 
 test('a reworded sentence is asked again with its previous translation, and only it', async (t) => {

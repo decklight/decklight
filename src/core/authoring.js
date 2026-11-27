@@ -31,6 +31,7 @@ import { createEditCommit } from './edit-commit.js';
 import { cleanPasted, cleanTyped } from './list-edit.js';
 import { labelOf, linesOf, setLines } from './diagram-labels.js';
 import { plainTurn } from './conversation.js';
+import { plainWriting, writesPlainText } from './letter-writing.js';
 
 /** The elements a double-click may edit in place: text containers, nothing generated. */
 export const EDITABLE = 'h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, td, th, dt, dd';
@@ -231,10 +232,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     closeLinkBox();
     const changed = cur.formula && changedNow(cur);
     // a list or a table: the whole session, one write (list-session.js)
-    const done = cur.list || cur.table ? lists.save(cur) : saveText(cur);
-    if (!cur.formula) return done;
+    const session = cur.list || cur.table;
+    const done = session ? lists.save(cur) : saveText(cur);
+    if (!cur.formula && !(session && cur.writingView)) return done;
     await done;
-    typesetAgain(cur, { changed });
+    if (cur.formula) typesetAgain(cur, { changed });
+    else if (!cur.el.closest('.dl-unsaved')) announce(cur.slide, cur.el);
   }
 
   // ── a formula typed as its source (CODE_AND_MATH) ─────────────────────────
@@ -278,11 +281,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     placePill();
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
+    if (cur.writing && cur.el.childElementCount) cur.el.textContent = cur.el.innerText;
     const inner = cur.el.innerHTML;
     // words the file does not have yet (a caption just added, pictures.js):
     // their own one write when the typing ends, whatever they say
     if (cur.provisional) return cur.provisional.save(cur.el);
-    if (inner === cur.original) { unstrand(cur.el); return; } // nothing changed: nothing written, no reload
+    if (inner === cur.original) { unstrand(cur.el); if (cur.writingView) announce(cur.slide, cur.el); return; }
     // what typing left that the file should not get (cleanTyped): the second guard behind the paste's own
     const words = cleanTyped(inner, cur.original);
     if (words !== inner) cur.el.innerHTML = words;   // the page shows what the file gets
@@ -336,7 +340,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
       if (stranded.has(cur.el)) { cur.el.innerHTML = cur.html; unstrand(cur.el); }
       return;
     }
-    if (cur.list || cur.table) { lists.cancel(cur); if (cur.formula) typesetAgain(cur); return; }
+    if (cur.list || cur.table) {
+      lists.cancel(cur);
+      if (cur.formula) typesetAgain(cur);
+      else if (cur.writingView) announce(cur.slide, cur.el);
+      return;
+    }
     unstrand(cur.el);
     if (cur.code) {
       cur.el.removeAttribute('contenteditable');
@@ -348,6 +357,7 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     cur.el.removeAttribute('contenteditable');
     cur.el.classList.remove('dl-editing');
     if (cur.formula) typesetAgain(cur);
+    if (cur.writingView) announce(cur.slide, cur.el);
   }
 
   // ── lists and tables, typed in like a document (PRESENTING_EDITING) ──────
@@ -998,10 +1008,12 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     const prior = stranded.get(el);
     // a conversation's tool turn is coloured as code (DECK_ANATOMY): typed as its words, never its spans
     plainTurn(el);
-    editing = { el, original: prior?.original ?? el.innerHTML, slide, index, path, provisional, formula: formula || !!prior?.formula };
+    const writingView = plainWriting(top);
+    const writing = writesPlainText(el);
+    editing = { el, original: prior?.original ?? el.innerHTML, slide, index, path, provisional, writing, writingView, formula: formula || !!prior?.formula };
     // a point of a list, a cell of a table: Enter and Tab work as a document's (list-session.js)
     if (!provisional) lists.begin(editing, top);
-    el.setAttribute('contenteditable', 'true');
+    el.setAttribute('contenteditable', writing ? 'plaintext-only' : 'true');
     el.classList.add('dl-editing');
     el.focus();
     // caret at the end, where a correction usually goes; a placeholder just
@@ -1059,11 +1071,11 @@ export function createAuthoring({ root, instance, toast, editmode, debugLog = ()
     // it opens neither a link box nor the palette: it says to select words.
     else if (isLinkChord(e)) {
       e.preventDefault();
-      openLinkBox();
+      if (!editing.writing) openLinkBox();
     }
     else if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.shiftKey ? SHIFTED_EMPHASIS : EMPHASIS)[e.key?.toLowerCase?.()]) {
       e.preventDefault();
-      toggleEmphasis((e.shiftKey ? SHIFTED_EMPHASIS : EMPHASIS)[e.key.toLowerCase()]);
+      if (!editing.writing) toggleEmphasis((e.shiftKey ? SHIFTED_EMPHASIS : EMPHASIS)[e.key.toLowerCase()]);
     }
   }, true);
   root.addEventListener('focusout', (e) => {
