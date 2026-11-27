@@ -34,6 +34,7 @@ import { splitSentences, speechRuns, stripAudioTags, PAUSE_MARK, CLICK_MARK, can
 import { serveForRender } from '../cli/serve.mjs';
 import { run as runBounded, PROBE_MS } from './exec.mjs';
 import { staleSlides, slideTexts, priorSlideTexts, slideNotes, slideBeats, scriptDrift, markerPauses } from './narration-manifest.mjs';
+import { defaultTrackDir } from './deck-family.mjs';
 import { synthesizeSlides, readTrack, trackFormat } from './narration-synth.mjs';
 import { characterMode, lipsyncAfterVoicing, haveRhubarb } from './lipsync-auto.mjs';
 import { createEngine, engineStatus, engineBlocker, ENGINES, piperModelDir } from './tts-engines.mjs';
@@ -824,7 +825,7 @@ export function resolveNarration(deckPath, narrationDir, { allowEmpty = false } 
     return { dir, slides: m.slides, engine: m.engine, model: m.model, voice: m.voice, voiceId: m.voiceId, style: m.style, format: m.format, recorder: m.recorder };
   };
   if (narrationDir) return load(resolve(narrationDir), true);
-  return load(join(resolve(deckPath, '..'), 'voiceover'), false);
+  return load(join(resolve(deckPath, '..'), defaultTrackDir(resolve(deckPath))), false);
 }
 
 /** Check the chosen track without writing audio, sidecars, or video. */

@@ -130,6 +130,7 @@ import { TURN_KINDS, ROLE_WORD, nextTurnRole, callName } from '../tools/conversa
 import { configBlock, hasEmbeddedRuntime, linkRuntime } from './runtime-link.mjs';
 import { linkReferences } from './deck-refs.mjs';
 import { slideTexts, priorSlideTexts, staleSlides, trackDrift } from '../tools/narration-manifest.mjs';
+import { deckFamily, ownsTrack, readManifest, tracksRoot } from '../tools/deck-family.mjs';
 import { applyPlans, voiceFolders, realignMoves, planFolder, planMoves, planSteps, movesRenumber, trackScripts, followedSaid } from '../tools/voice-renumber.mjs';
 // The routes that rewrite a slide, which took three of editMain's bindings and
 // nothing else with them. The import back — edit-slides reaches here for the
@@ -5433,11 +5434,19 @@ export async function editMain(args, { onListen = null, client } = {}) {
       ? await import('../tools/lipsync-auto.mjs') : null;
     const texts = slideTexts(deck);
     const prior = priorSlideTexts(deck);
+    // the deck in another language beside this one has its own tracks
+    // (PRESENTING_VOICE): a folder the deck's config names is always its own
+    const family = deckFamily(deckPath);
+    const named = new Set(configuredTrackDirs(deck).map((d) => d.replace(/^\.\//, '').replace(/\/+$/, '')));
+    const mineToList = (rel) => {
+      const key = rel.split(sep).join('/');
+      return named.has(key) || ownsTrack(family, key, readManifest(resolve(root2, rel)));
+    };
     const look = (rel) => {
       let entries;
       try { entries = readdirSync(resolve(root2, rel), { withFileTypes: true }); } catch { return; }
       const wav = entries.filter((e) => e.isFile() && /^slide-\d+(-\d+)?\.(wav|m4a|mp3)$/.test(e.name));
-      if (wav.length) {
+      if (wav.length && mineToList(rel)) {
         let engine = null; let voice = null; let voiceId = null; let model = null; let style = null; let manifest = false; let stale = 0; let mine = false;
         let drift = [];
         let realign = null;
@@ -5509,7 +5518,8 @@ export async function editMain(args, { onListen = null, client } = {}) {
     }
     // and whether the character's lip-sync can be made here, which a video
     // export with the character does before its render (PRESENTING_OUTPUT)
-    return json(200, { ok: true, tracks: seen, visemes: visemesWhyNot() });
+    // …and where a new take goes: `voices`, or `voices-fr` for the French of a deck
+    return json(200, { ok: true, tracks: seen, root: tracksRoot(family), visemes: visemesWhyNot() });
   }
 
   /**

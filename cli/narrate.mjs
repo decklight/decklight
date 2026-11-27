@@ -33,6 +33,7 @@ import { dirname, join, relative, resolve, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { firstPositional, isMain } from '../tools/args.mjs';
 import { deckLang } from '../tools/deck-html.mjs';
+import { deckFamily, ownsTrack, readManifest, defaultTrackDir } from '../tools/deck-family.mjs';
 import { runMain, wrongRecorder } from './util.mjs';
 import { configuredTrackDirs } from './edit.mjs';
 
@@ -140,7 +141,7 @@ export function faceFolders(deckPath, html, dirArg) {
   const deckDir = dirname(resolve(deckPath));
   if (dirArg) return [resolve(deckDir, dirArg)];
   const named = configuredTrackDirs(html).filter((d) => !/^[a-z][a-z0-9+.-]*:/i.test(d));
-  const dirs = (named.length ? named : ['voiceover']).map((d) => resolve(deckDir, d));
+  const dirs = (named.length ? named : [defaultTrackDir(resolve(deckPath))]).map((d) => resolve(deckDir, d));
   return [...new Set(dirs)].filter(hasAudio);
 }
 
@@ -179,13 +180,17 @@ function faceMain(plan, argv) {
 /**
  * The track folders beside a deck that carry a manifest: the same two levels
  * the edit server's track list walks (`voices/<voice>`), relative to the deck.
+ * With `deckPath`, only that deck's: a track in the language of another file
+ * of its family (`voices-fr/…` beside `talk.html`) is that file's to check.
  */
-export function manifestTracks(deckDir) {
+export function manifestTracks(deckDir, deckPath = null) {
+  const family = deckPath ? deckFamily(deckPath) : null;
+  const own = (rel) => !family || ownsTrack(family, rel, readManifest(join(deckDir, rel)));
   const out = [];
   const look = (rel) => {
     let entries;
     try { entries = readdirSync(join(deckDir, rel), { withFileTypes: true }); } catch { return []; }
-    if (entries.some((e) => e.isFile() && e.name === 'manifest.json')) out.push(rel);
+    if (entries.some((e) => e.isFile() && e.name === 'manifest.json') && own(rel)) out.push(rel);
     return entries.filter((e) => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules');
   };
   for (const e of look('.')) {
@@ -208,7 +213,7 @@ async function checkMain(plan, argv) {
   const html = readFileSync(plan.deck, 'utf8');
   const deckDir = dirname(resolve(plan.deck));
   const dirAt = argv.indexOf('--dir');
-  const dirs = dirAt === -1 ? manifestTracks(deckDir) : [argv[dirAt + 1]];
+  const dirs = dirAt === -1 ? manifestTracks(deckDir, resolve(plan.deck)) : [argv[dirAt + 1]];
   let out = 0;
   if (!dirs.length) { console.log('no narration track with a manifest beside this deck — nothing to check'); return 0; }
   for (const dir of dirs) {
