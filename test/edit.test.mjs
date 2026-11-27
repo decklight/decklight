@@ -415,7 +415,11 @@ test('detectAgents reports only what the machine can run, in preference order', 
 });
 
 test('agentCommand builds each agent\'s headless one-shot invocation', () => {
-  const claude = agentCommand('claude', 'center slide 2', 'deck.html', { hasBin: () => true });
+  // The command as written, not as this machine would spawn it: on Windows
+  // spawnSpec answers with where the agent is installed (`C:\\…\\claude.exe`),
+  // which made this pass or fail by what the machine running it has on PATH.
+  const bare = () => null;
+  const claude = agentCommand('claude', 'center slide 2', 'deck.html', { hasBin: () => true, spec: bare });
   assert.equal(claude.bin, 'claude');
   assert.equal(claude.args[0], '-p');
   assert.match(claude.args[1], /deck\.html/, 'the prompt names the file');
@@ -425,28 +429,28 @@ test('agentCommand builds each agent\'s headless one-shot invocation', () => {
     'acceptEdits, decklight\'s own CLI in the shell, and the stream that narrates the run');
   // "this slide" means the one on screen: the prompt names it, and says the
   // commit is decklight's — an agent started by A never calls the route
-  const here = agentCommand('claude', 'add a basic svg on this slide', 'deck.html', { hasBin: () => true, slide: 2 });
+  const here = agentCommand('claude', 'add a basic svg on this slide', 'deck.html', { hasBin: () => true, spec: bare, slide: 2 });
   assert.match(here.args[1], /The presenter is on slide 2, the second top-level <section>/);
   assert.match(here.args[1], /do not call the commit route/);
   assert.match(here.args[1], /name a slide by its title, or by a few words describing it when it has none, never by its number/, 'the summary is the subject');
   assert.doesNotMatch(claude.args[1], /The presenter is on slide/, 'no slide, no sentence');
 
   // a folder outside the project the job must read: claude is given it, and only it
-  const skill = agentCommand('claude', 'migrate', 'deck.html', { hasBin: () => true, dirs: ['/home/me/.decklight/skills/acme-migrate'] });
+  const skill = agentCommand('claude', 'migrate', 'deck.html', { hasBin: () => true, spec: bare, dirs: ['/home/me/.decklight/skills/acme-migrate'] });
   assert.deepEqual(skill.args.slice(skill.args.indexOf('--add-dir'), skill.args.indexOf('--add-dir') + 2), ['--add-dir', '/home/me/.decklight/skills/acme-migrate']);
   assert.ok(!claude.args.includes('--add-dir'), 'no dirs, no --add-dir');
 
-  const codex = agentCommand('codex', 'x', 'deck.html', { hasBin: () => true });
+  const codex = agentCommand('codex', 'x', 'deck.html', { hasBin: () => true, spec: bare });
   assert.deepEqual(codex.args.slice(0, 2), ['exec', '--full-auto']);
 
-  const bob = agentCommand('bob', 'x', 'deck.html', { hasBin: () => true });
+  const bob = agentCommand('bob', 'x', 'deck.html', { hasBin: () => true, spec: bare });
   assert.equal(bob.args[0], '-p');
   assert.ok(bob.args.includes('--accept-license'), 'bob must not hang on the license prompt');
 
   // no name → the first detected agent; nothing detected → null
-  assert.equal(agentCommand(undefined, 'x', 'd', { hasBin: () => true }).name, 'claude');
+  assert.equal(agentCommand(undefined, 'x', 'd', { hasBin: () => true, spec: bare }).name, 'claude');
   assert.equal(agentCommand('claude', 'x', 'd', { hasBin: () => false }), null);
-  assert.equal(agentCommand('sideways', 'x', 'd', { hasBin: () => true }), null);
+  assert.equal(agentCommand('sideways', 'x', 'd', { hasBin: () => true, spec: bare }), null);
 });
 
 // ── git: the durable record ────────────────────────────────────────────────

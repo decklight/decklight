@@ -15,7 +15,12 @@ import { dirname, join } from 'node:path';
 // node-pty and js-yaml are optional (CLI recording only); a checkout without
 // them should SKIP the tests that need them, not fail. The value is a skip
 // reason string (truthy) or false.
+//
+// Windows skips them too, installed or not: `decklight cast` records a POSIX
+// shell (`/bin/zsh`, `/bin/bash`), and a Windows machine that happens to have
+// node-pty built would otherwise fail every one on "shell not found".
 export const optionalDepSkip = (() => {
+  if (process.platform === 'win32') return 'decklight cast records a POSIX shell';
   const require = createRequire(import.meta.url);
   try { require.resolve('node-pty'); require.resolve('js-yaml'); return false; }
   catch { return 'node-pty/js-yaml not installed (optional deps)'; }
