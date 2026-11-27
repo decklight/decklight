@@ -893,8 +893,16 @@ try {
   });
 } finally {
   await browser.close().catch(() => {});
-  for (const s of servers) s.kill();
-  rmSync(dir, { recursive: true, force: true });
+  // Wait for the servers to be gone before removing the folder they run in:
+  // `kill()` only asks, and Windows refuses (EPERM) to remove a folder a live
+  // process still has as its working directory, which threw from here and lost
+  // every result above.
+  await Promise.all(servers.map((s) => new Promise((done) => {
+    if (s.exitCode !== null || s.signalCode !== null) return done();
+    s.once('exit', done);
+    s.kill();
+  })));
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 for (const e of errors) { bad++; results.push(`FAIL page error  ${e.split('\n')[0]}`); }
