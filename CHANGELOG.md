@@ -5,6 +5,13 @@ Compiled at release time from the merged PR titles — not updated per PR (see
 number. Each release also has a [GitHub release](https://github.com/decklight/decklight/releases)
 carrying the same notes in prose.
 
+## 0.10.1
+
+Two commits since 0.10.0, including the release commit. The npm package now
+includes `NOTICE` alongside `LICENSE` so projects redistributing Decklight's
+browser bundle have the attribution file. The package install test checks for
+both files. [#1278](https://github.com/decklight/decklight/issues/1278)
+
 ## 0.10.0
 
 Fifty-seven commits since 0.9.0, counting this one. 0.9.0 gave a deck a

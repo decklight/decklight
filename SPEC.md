@@ -361,7 +361,7 @@ A theme travels as what it already is: **one CSS file**. There is no registry, a
 **A deck refers to a theme; it does not carry one.** A source deck is data (`DECK_ANATOMY`), and a theme from outside the shipped set is somebody else's kilobytes of CSS, so the deck records only *which* theme it uses, as a reference in its configuration block, and the CSS stays in its marketplace:
 
 ```json
-{ "decklight": "0.10.0", "theme": "acme",
+{ "decklight": "0.10.1", "theme": "acme",
   "markedThemes": ["acme@acme-themes"], "themeSources": { "acme-themes": "acme/decklight-themes" } }
 ```
 
