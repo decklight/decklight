@@ -14,7 +14,8 @@
     "themes/",
     "docs/",
     "SPEC.md",
-    "PLATFORM.md"
+    "PLATFORM.md",
+    "NOTICE"
   ],
   "homepage": "https://decklight.io",
   "repository": {

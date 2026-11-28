@@ -600,7 +600,7 @@ try {
     must(existsSync(DL.bin), `${DL.bin} is missing — the bin field or files: regressed`);
     installedThemes = readdirSync(join(PROJECT, 'node_modules', 'decklight', 'themes'))
       .filter((f) => f.endsWith('.css')).length;
-    for (const f of ['dist/decklight.js', 'dist/decklight.css', 'themes/aurora.css', 'SPEC.md']) {
+    for (const f of ['dist/decklight.js', 'dist/decklight.css', 'themes/aurora.css', 'SPEC.md', 'LICENSE', 'NOTICE']) {
       must(existsSync(join(PROJECT, 'node_modules', 'decklight', f)), `the tarball is missing ${f}`);
     }
   });
